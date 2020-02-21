@@ -22,6 +22,7 @@ from fairseq.data import (
     PrependTokenDataset,
     StripTokenDataset,
     TruncateDataset,
+    Seq2SqlPairDataSet,
 )
 
 from fairseq.tasks import FairseqTask, register_task
@@ -39,12 +40,11 @@ def get_col_sizes(filename):
     return size_list
 
 def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict, col_dict, 
-        combine=combine, dataset_impl=self.args.dataset_impl,
-        upsample_primary=self.args.upsample_primary, 
-        left_pad_source=left_pad_source,
-        left_pad_target=left_pad_target,
-        max_source_positions=max_source_positions,
-        max_target_positions=max_target_positions,):
+        dataset_impl, upsample_primary, 
+        left_pad_source,
+        left_pad_target,
+        max_source_positions,
+        max_target_positions):
 
     
     src_datasets = []
@@ -124,7 +124,7 @@ class Seq2SqlTask(FairseqTask):
                             help='max number of tokens in the source sequence')
         parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
                             help='max number of tokens in the target sequence')
-        parser.add_argument('--combine', default=False, type=boolean)
+        parser.add_argument('--combine', default=False)
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
         parser.add_argument('--truncate-source', action='store_true', default=False,
@@ -136,6 +136,7 @@ class Seq2SqlTask(FairseqTask):
         super().__init__(args)
         self.src_dict = src_dict
         self.sql_dict = sql_dict
+
 
 
     @classmethod
@@ -193,7 +194,7 @@ class Seq2SqlTask(FairseqTask):
 
         self.datasets[split] = load_seq_sql_dataset(
             data_path, split, src, self.src_dict, sql, self.sql_dict, self.col_dict, 
-            combine=combine, dataset_impl=self.args.dataset_impl,
+            dataset_impl=self.args.dataset_impl,
             upsample_primary=self.args.upsample_primary,
             left_pad_source=self.args.left_pad_source,
             left_pad_target=self.args.left_pad_target,

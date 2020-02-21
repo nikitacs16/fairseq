@@ -16,7 +16,7 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.modules import AdaptiveSoftmax
-from fairseq.models.lstm import LSTMEncoder, LSTMDecoder
+#from fairseq.models.lstm import LSTMEncoder, LSTMDecoder
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1e5
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
@@ -167,8 +167,8 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
             dropout_in=args.decoder_dropout_in,
             dropout_out=args.decoder_dropout_out,
             attention=options.eval_bool(args.decoder_attention),
-            copy_attention = options.eval_bool(args.decoder_attention)
-            encoder_output_units=encoder.output_units,
+            copy_attention = options.eval_bool(args.decoder_attention),
+            encoder_output_units = encoder.output_units,
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
@@ -179,50 +179,11 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
         )
         return cls(encoder, decoder)
 
-    def __init__(self, rnn, input_vocab):
-        super(FairseqRNNClassifier, self).__init__()
+    def forward(self, src_tokens, src_lengths, col_lengths, prev_output_tokens,  **kwargs):
+        encoder_out = self.encoder(src_tokens, src_lengths, col_lengths)
+        decoder_out = self.decoder(prev_output_tokens, encoder_out=encoder_out, **kwargs)
 
-        self.rnn = rnn
-        self.input_vocab = input_vocab
-
-        # The RNN module in the tutorial expects one-hot inputs, so we can
-        # precompute the identity matrix to help convert from indices to
-        # one-hot vectors. We register it as a buffer so that it is moved to
-        # the GPU when ``cuda()`` is called.
-        self.register_buffer('one_hot_inputs', torch.eye(len(input_vocab)))
-
-    def forward(self, src_tokens, src_lengths):
-        pass
-
-
-        # The inputs to the ``forward()`` function are determined by the
-        # Task, and in particular the ``'net_input'`` key in each
-        # mini-batch. We'll define the Task in the next section, but for
-        # now just know that *src_tokens* has shape `(batch, src_len)` and
-        # *src_lengths* has shape `(batch)`.
-        bsz, max_src_len = src_tokens.size()
-
-        # Initialize the RNN hidden state. Compared to the original PyTorch
-        # tutorial we'll also handle batched inputs and work on the GPU.
-        hidden = self.rnn.initHidden()
-        hidden = hidden.repeat(bsz, 1)  # expand for batched inputs
-        hidden = hidden.to(src_tokens.device)  # move to GPU
-
-        for i in range(max_src_len):
-            # WARNING: The inputs have padding, so we should mask those
-            # elements here so that padding doesn't affect the results.
-            # This is left as an exercise for the reader. The padding symbol
-            # is given by ``self.input_vocab.pad()`` and the unpadded length
-            # of each input is given by *src_lengths*.
-
-            # One-hot encode a batch of input characters.
-            input = self.one_hot_inputs[src_tokens[:, i].long()] #change this to 
-
-            # Feed the input to our RNN.
-            output, hidden = self.rnn(input, hidden)
-
-        # Return the final output state for making a prediction
-        return output
+        return decoder_out
 
 
 
@@ -235,7 +196,7 @@ def Embedding(num_embeddings, embedding_dim, padding_idx):
 
 
 
-@register_model_architecture('concatseq2seq', 'default')
+@register_model_architecture('concatseq2seq', 'concatseq2seq')
 def base_architecture(args):
     args.dropout = getattr(args, 'dropout', 0.1)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 300)
@@ -350,7 +311,7 @@ class LSTMConcatEncoder(FairseqEncoder):
 
         return {
             'encoder_out': (x, final_hiddens, final_cells),
-            'encoder_padding_mask': encoder_padding_mask if encoder_padding_mask.any() else None
+            'encoder_padding_mask': encoder_padding_mask, 
             'encoder_copy_padding_mask': encoder_copy_padding_mask
         }
 

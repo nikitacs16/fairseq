@@ -102,13 +102,13 @@ def collate(
         'nsentences': len(samples),
         'ntokens': ntokens,
         'net_input': {
-            'src_dict': src_dict, 
+            #'src_dict': src_dict, 
             'src_tokens': src_tokens,
             'src_lengths': src_lengths,
             'col_lengths': col_lengths,
         },
-        'sql': target,
-        'sql_dict': target_dict,
+        'target': target,
+        #'sql_dict': target_dict,
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
