@@ -69,7 +69,6 @@ def load_indexed_dataset(path, dictionary, dataset_impl=None, combine=False, def
     datasets = []
     for k in itertools.count():
         path_k = path + (str(k) if k > 0 else '')
-
         dataset_impl_k = dataset_impl
         if dataset_impl_k is None:
             dataset_impl_k = indexed_dataset.infer_dataset_impl(path_k)

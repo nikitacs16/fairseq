@@ -8,17 +8,27 @@ import logging
 import numpy as np
 import torch
 
-from . import data_utils, FairseqDataset
+from . import data_utils, FairseqDataset, dictionary
 from collections import Counter
 
 logger = logging.getLogger(__name__)
+def convert_to_dict_object(dict_name):
+    f = open('temp_dict.txt','w')
+    for k,v in dict_name.items():
+        f.write(k + ' ' + str(v) + '\n')
+    f.close()
+
+    return dictionary.Dictionary.load('temp_dict.txt')
+
 
 class SrcObject(object):
     """docstring for SrcObject"""
     def __init__(self, id_, sequence, basic_dict, col_length, col_dict=None):
         super(SrcObject, self).__init__()
         self.id = id_
-        self.sequence = sequence
+        #print(basic_dict.indices)
+        self.sequence = [basic_dict.symbols[int(s)] for s in sequence] #optimize this!
+        
         self.basic_dict = basic_dict
         self.col_length = col_length
         self.col_dict = None
@@ -28,11 +38,12 @@ class SrcObject(object):
 
     def set_col_dict(self):
         col_set = Counter(self.sequence[:self.col_length])
+        col_set = convert_to_dict_object(col_set)
         self.basic_dict.update(col_set)
         self.col_dict = col_set
 
     def convert_sequence_to_ids(self):
-        self.index_sequence = [self.basic_dict.index(s) for s in self.sequence]
+        self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
          
 
 class SqlObject(object):
@@ -41,14 +52,14 @@ class SqlObject(object):
         super(SqlObject, self).__init__()
         self.id = id_
         self.sequence = sequence
+        self.sequence = [basic_dict.symbols[int(s)] for s in sequence]
         self.basic_dict = basic_dict
-        self.col_dict = col_dict
+        #self.col_dict = convert_to_dict_object(col_dict)
         self.basic_dict.update(col_dict)
         self.convert_sequence_to_ids()
 
     def convert_sequence_to_ids(self):
-        self.index_sequence = [self.basic_dict.index(s) for s in self.sequence]
-  
+        self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
 
 
 def collate(
@@ -68,19 +79,19 @@ def collate(
     id = torch.LongTensor([s['id'] for s in samples])
     src_tokens = merge('source', left_pad=left_pad_source)
     # sort by descending source length
-    src_lengths = torch.LongTensor([s['source'].sequence.numel() for s in samples])
+    src_lengths = torch.LongTensor([s['source'].index_sequence.numel() for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
-    src_dict = [s['source'].basic_dict].index_select(0, sort_order)
-    col_lengths = torch.LongTensor([s['column_sizes'] for s in samples].index_select(0,sort_order))
+    src_dict = [samples[k]['source'].basic_dict for k in sort_order]
+    col_lengths = torch.LongTensor([s['column_sizes'] for s in samples]).index_select(0,sort_order)
     prev_output_tokens = None
     target = None
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        target_dict = [s['target'].basic_dict].index_select(0, sort_order)
-        sql_lengths = torch.LongTensor([s['target'].sequence.numel() for s in samples]).index_select(0, sort_order)
+        target_dict = [samples[k]['target'].basic_dict for k in sort_order]
+        sql_lengths = torch.LongTensor([s['target'].index_sequence.numel() for s in samples]).index_select(0, sort_order)
         ntokens = sum(len(s['target'].sequence) for s in samples)
 
         if input_feeding:
@@ -205,8 +216,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
             eos = self.src_dict.eos()
             if self.src[index][-1] == eos:
                 src_item = self.src[index][:-1]
-        src_item = SrcObject(id_, src_item, src_dict, col_item)
-        sql_item = SqlObject(id_, sql_item, sql_dict, src_item.col_dict)
+        src_item = SrcObject(index, src_item, self.src_dict, col_item)
+        sql_item = SqlObject(index, sql_item, self.sql_dict, src_item.col_dict)
         example = {
             'id': index,
             'source': src_item,

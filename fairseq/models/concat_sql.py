@@ -16,8 +16,7 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.modules import AdaptiveSoftmax
-#from fairseq.models.lstm import LSTMEncoder, LSTMDecoder
-
+from fairseq.models.lstm import LSTM, LSTMCell, Linear, Embedding, AttentionLayer
 DEFAULT_MAX_SOURCE_POSITIONS = 1e5
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
 
@@ -167,7 +166,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
             dropout_in=args.decoder_dropout_in,
             dropout_out=args.decoder_dropout_out,
             attention=options.eval_bool(args.decoder_attention),
-            copy_attention = options.eval_bool(args.decoder_attention),
+            copy_attention_simple = options.eval_bool(args.decoder_attention),
             encoder_output_units = encoder.output_units,
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
@@ -188,11 +187,6 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    nn.init.uniform_(m.weight, -0.1, 0.1)
-    nn.init.constant_(m.weight[padding_idx], 0)
-    return m
 
 
 
@@ -211,7 +205,7 @@ def base_architecture(args):
     args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
     args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 2)
+    args.decoder_layers = getattr(args, 'decoder_layers', 1)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 300)
     args.decoder_attention = getattr(args, 'decoder_attention', '1')
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
@@ -307,7 +301,7 @@ class LSTMConcatEncoder(FairseqEncoder):
             final_cells = combine_bidir(final_cells)
 
         encoder_padding_mask = src_tokens.eq(self.padding_idx).t()
-        encoder_copy_padding_mask = self.get_copy_padding_mask(src_tokens, col_lengths)
+        encoder_copy_padding_mask = self.get_copy_padding_mask(src_tokens, col_lengths).t()
 
         return {
             'encoder_out': (x, final_hiddens, final_cells),
@@ -319,6 +313,7 @@ class LSTMConcatEncoder(FairseqEncoder):
         encoder_copy_padding_mask = torch.zeros(src_tokens.size())
         for c in range(src_tokens.size(0)):
             encoder_copy_padding_mask[c,:col_lengths[c]] = 1
+        encoder_copy_padding_mask = (encoder_copy_padding_mask == 1)
         return encoder_copy_padding_mask
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -359,7 +354,8 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         self.max_target_positions = max_target_positions
         self.dictionary_tables = 1000 #
         self.adaptive_softmax = None
-        num_embeddings = len(dictionary) + len(self.dictionary_tables) #?
+        self.copy_attention_simple = copy_attention_simple
+        num_embeddings = len(dictionary) + 1000#len(self.dictionary_tables) #?
         padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
@@ -389,12 +385,12 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         else:
             self.attention = None
         
-        if copy_attention_simple:
+        if self.copy_attention_simple:
 
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
             self.linear_sql = Linear(hidden_size, len(dictionary))
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, len(dictionary_tables))
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, 1000) #update this!
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -417,6 +413,14 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         """
         Similar to *forward* but only return features.
         """
+        if self.copy_attention_simple:
+            
+
+            encoder_copy_padding_mask = encoder_out['encoder_copy_padding_mask']
+        else:
+            encoder_copy_padding_mask = None
+
+
         if encoder_out is not None:
             encoder_padding_mask = encoder_out['encoder_padding_mask']
             encoder_out = encoder_out['encoder_out']
@@ -424,10 +428,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             encoder_padding_mask = None
             encoder_out = None
 
-        if self.copy_attention_simple:
-            encoder_copy_padding_mask = encoder_out['encoder_copy_padding_mask']
-        else:
-            encoder_copy_padding_mask = None
+
 
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
@@ -495,17 +496,21 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             # apply attention using the last layer's hidden state
             if self.attention is not None:
                 out_plain, attn_scores[:, j, :] = self.attention(hidden, encoder_outs, encoder_padding_mask)
+                out = out_plain
+                print(out.size())
             else:
                 out = hidden
             
             if self.copy_attention_simple:
-                out_copy, attn_copy_scores[:, j, :]= self.copy_attention(hidden, encoder_outs, encoder_copy_padding_mask) #check dimensions for concat!
+                out_copy, attn_copy_scores[:, j, :]= self.copy_attention(hidden, encoder_outs, encoder_copy_padding_mask.cuda()) #check dimensions for concat!
                 out_cat = torch.cat((out_plain, out_copy), 1) #concat!
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
+                print(temp_o_k.size())
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
+                
                 m_column = self.bilinear_col(temp_o_k,out_copy)
                 out = torch.cat((m_sql, m_column), 1)
-            
+                print(out.size())
             out = F.dropout(out, p=self.dropout_out, training=self.training)
 
             # input feeding
@@ -514,7 +519,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
             # save final output
             outs.append(out)
-
+        
         # cache previous states (no-op except during incremental generation)
         utils.set_incremental_state(
             self, incremental_state, 'cached_state',
@@ -526,11 +531,13 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
         # T x B x C -> B x T x C
         x = x.transpose(1, 0)
+        print(x.size())
 
-        if hasattr(self, 'additional_fc') and self.adaptive_softmax is None:
+        if hasattr(self, 'additional_fc') and self.adaptive_softmax is None and not self.copy_attention_simple:
+            print('was called')
             x = self.additional_fc(x)
             x = F.dropout(x, p=self.dropout_out, training=self.training)
-
+        print(x.size())    
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         if not self.training and self.need_attn and self.attention is not None:
             attn_scores = attn_scores.transpose(0, 2)
@@ -544,13 +551,14 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
     def output_layer(self, x):
         """Project features to the vocabulary size."""
+        
         if self.adaptive_softmax is None:
             if self.share_input_output_embed:
                 x = F.linear(x, self.embed_tokens.weight)
             else:
                 x = self.fc_out(x) #generation probability
 
-
+        print(x.size())        
         return x
 
     def reorder_incremental_state(self, incremental_state, new_order):

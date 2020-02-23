@@ -39,21 +39,23 @@ def get_col_sizes(filename):
         size_list.append(int(i.strip()))
     return size_list
 
-def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict, col_dict, 
+def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,  
         dataset_impl, upsample_primary, 
         left_pad_source,
         left_pad_target,
         max_source_positions,
-        max_target_positions):
+        max_target_positions,
+        truncate_source,
+        prepend_bos):
 
     
     src_datasets = []
     sql_datasets = []
 
-    prefix = os.path.join(data_path, split_name)
+    prefix = os.path.join(data_path, split)
     
 
-    src_dataset = data_utils.load_indexed_dataset(prefix + src, src_dict, dataset_impl)
+    src_dataset = data_utils.load_indexed_dataset(prefix + '.' + src, src_dict, dataset_impl)
     col_sizes = get_col_sizes(prefix + '.col')
     if truncate_source:
         src_dataset = AppendTokenDataset(
@@ -64,7 +66,7 @@ def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict, col_dic
             src_dict.eos(),
         )
     src_datasets.append(src_dataset)
-    sql_datasets.append(data_utils.load_indexed_dataset(prefix + sql, sql_dict, dataset_impl))
+    sql_datasets.append(data_utils.load_indexed_dataset(prefix +  '.' + sql, sql_dict, dataset_impl))
 
 
 
@@ -83,8 +85,7 @@ def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict, col_dic
         src_dataset = PrependTokenDataset(src_dataset, src_dict.bos())
         sql_dataset = PrependTokenDataset(sql_dataset, sql_dict.bos())
 
-
-
+  
 
     return Seq2SqlPairDataSet(
         src_dataset, src_dataset.sizes, src_dict, col_sizes,
@@ -120,6 +121,12 @@ class Seq2SqlTask(FairseqTask):
         # fmt: off
         parser.add_argument('data', help='colon separated path to data directories list, \
                             will be iterated upon during epochs in round-robin manner')
+
+        parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
+                            help='pad the source on the left')
+        parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
+                            help='pad the target on the left')
+
         parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
                             help='max number of tokens in the source sequence')
         parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
@@ -132,7 +139,7 @@ class Seq2SqlTask(FairseqTask):
         parser.add_argument('--add-bos-token', action='store_true',
                             help='prepend beginning of sentence token (<s>)')
     
-    def __init__(self, args, src_dict, sql_dict, col_dict):
+    def __init__(self, args, src_dict, sql_dict):
         super().__init__(args)
         self.src_dict = src_dict
         self.sql_dict = sql_dict
@@ -151,11 +158,6 @@ class Seq2SqlTask(FairseqTask):
 
         paths = args.data.split(os.pathsep)
         assert len(paths) > 0
-        # find language pair automatically
-        if args.source_lang is None or args.target_lang is None:
-            args.source_lang, args.target_lang = data_utils.infer_language_pair(paths[0])
-        if args.source_lang is None or args.target_lang is None:
-            raise Exception('Could not infer language pair, please provide it explicitly')
 
         # load dictionaries
         src_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.src.txt'))
@@ -164,19 +166,12 @@ class Seq2SqlTask(FairseqTask):
         assert src_dict.pad() == sql_dict.pad()
         assert src_dict.eos() == sql_dict.eos()
         assert src_dict.unk() == sql_dict.unk()
-        logger.info('[{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
-        logger.info('[{}] dictionary: {} types'.format(args.target_lang, len(sql_dict)))
+        logger.info('["src"] dictionary: {} types'.format(len(src_dict)))
+        logger.info('["sql"] dictionary: {} types'.format(len(sql_dict)))
 
         return cls(args, src_dict, sql_dict)
 
-    @classmethod
-    def load_dictionary(cls, args, filename, source=True):
-        """Load the dictionary from the filename
-        Args:
-            filename (str): the filename
-        """
-        dictionary = Dictionary.load(filename)
-        return dictionary
+ 
 
     def load_dataset(self, split, epoch=0, combine=False, **kwargs):
         """Load a given dataset split.
@@ -185,15 +180,17 @@ class Seq2SqlTask(FairseqTask):
             split (str): name of the split (e.g., train, valid, test)
         """
         paths = self.args.data.split(os.pathsep)
+        print(paths)
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
         
 
         # infer langcode
-        src, sql = self.args.source_lang, self.args.target_lang
+        src = 'input'
+        sql = 'out'
 
         self.datasets[split] = load_seq_sql_dataset(
-            data_path, split, src, self.src_dict, sql, self.sql_dict, self.col_dict, 
+            data_path, split, src, self.src_dict, sql, self.sql_dict,  
             dataset_impl=self.args.dataset_impl,
             upsample_primary=self.args.upsample_primary,
             left_pad_source=self.args.left_pad_source,
@@ -201,6 +198,7 @@ class Seq2SqlTask(FairseqTask):
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
             truncate_source=self.args.truncate_source,
+            prepend_bos=self.args.add_bos_token
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
@@ -242,7 +240,7 @@ class Seq2SqlTask(FairseqTask):
         return self.src_dict
 
     @property
-    def sql_dictionary(self):
+    def target_dictionary(self):
         """Return the target :class:`~fairseq.data.Dictionary`."""
         return self.sql_dict
 
