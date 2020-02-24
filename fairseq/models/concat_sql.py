@@ -166,7 +166,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
             dropout_in=args.decoder_dropout_in,
             dropout_out=args.decoder_dropout_out,
             attention=options.eval_bool(args.decoder_attention),
-            copy_attention_simple = options.eval_bool(args.decoder_attention),
+            copy_attention_simple = True, 
             encoder_output_units = encoder.output_units,
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
@@ -197,7 +197,7 @@ def base_architecture(args):
     args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
     args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed', False)
     args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_embed_dim)
-    args.encoder_layers = getattr(args, 'encoder_layers', 1)
+    args.encoder_layers = getattr(args, 'encoder_layers', 2)
     args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', False)
     args.encoder_dropout_in = getattr(args, 'encoder_dropout_in', args.dropout)
     args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', args.dropout)
@@ -205,7 +205,7 @@ def base_architecture(args):
     args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
     args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 1)
+    args.decoder_layers = getattr(args, 'decoder_layers', 2)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 300)
     args.decoder_attention = getattr(args, 'decoder_attention', '1')
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
@@ -343,7 +343,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         copy_attention_simple=True,
         encoder_output_units=512, pretrained_embed=None,
         share_input_output_embed=False, adaptive_softmax_cutoff=None,
-        max_target_positions=DEFAULT_MAX_TARGET_POSITIONS
+        max_target_positions=DEFAULT_MAX_TARGET_POSITIONS,
     ):
         super().__init__(dictionary)
         self.dropout_in = dropout_in
@@ -352,10 +352,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         self.share_input_output_embed = share_input_output_embed
         self.need_attn = True
         self.max_target_positions = max_target_positions
-        self.dictionary_tables = 1000 #
+        self.dictionary_tables = 2000 #
         self.adaptive_softmax = None
         self.copy_attention_simple = copy_attention_simple
-        num_embeddings = len(dictionary) + 1000#len(self.dictionary_tables) #?
+        num_embeddings = len(dictionary) + 2000
+        self.num_embeddings = num_embeddings
         padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
@@ -390,7 +391,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
             self.linear_sql = Linear(hidden_size, len(dictionary))
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, 1000) #update this!
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, 2000) #update this!
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -497,7 +498,6 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             if self.attention is not None:
                 out_plain, attn_scores[:, j, :] = self.attention(hidden, encoder_outs, encoder_padding_mask)
                 out = out_plain
-                print(out.size())
             else:
                 out = hidden
             
@@ -505,18 +505,18 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 out_copy, attn_copy_scores[:, j, :]= self.copy_attention(hidden, encoder_outs, encoder_copy_padding_mask.cuda()) #check dimensions for concat!
                 out_cat = torch.cat((out_plain, out_copy), 1) #concat!
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
-                print(temp_o_k.size())
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
-                
-                m_column = self.bilinear_col(temp_o_k,out_copy)
+                m_column = self.bilinear_col(temp_o_k,out_copy) #split for table words
                 out = torch.cat((m_sql, m_column), 1)
-                print(out.size())
+            #if self.copy_attention_pointer:
+             #   pass
+            
             out = F.dropout(out, p=self.dropout_out, training=self.training)
 
             # input feeding
             if input_feed is not None:
-                input_feed = out
-
+                input_feed = out_plain
+            
             # save final output
             outs.append(out)
         
@@ -526,18 +526,19 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             (prev_hiddens, prev_cells, input_feed),
         )
 
-        # collect outputs across time steps
-        x = torch.cat(outs, dim=0).view(seqlen, bsz, self.hidden_size)
+        if self.copy_attention_simple:
+            x = torch.cat(outs, dim=0).view(seqlen, bsz, self.num_embeddings)
+        else:
+             # collect outputs across time steps
+            x = torch.cat(outs, dim=0).view(seqlen, bsz, self.hidden_size)
 
         # T x B x C -> B x T x C
         x = x.transpose(1, 0)
-        print(x.size())
-
+     
         if hasattr(self, 'additional_fc') and self.adaptive_softmax is None and not self.copy_attention_simple:
-            print('was called')
             x = self.additional_fc(x)
             x = F.dropout(x, p=self.dropout_out, training=self.training)
-        print(x.size())    
+        
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         if not self.training and self.need_attn and self.attention is not None:
             attn_scores = attn_scores.transpose(0, 2)
@@ -552,13 +553,15 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
     def output_layer(self, x):
         """Project features to the vocabulary size."""
         
+        if self.copy_attention_simple:
+            return x
+
         if self.adaptive_softmax is None:
             if self.share_input_output_embed:
                 x = F.linear(x, self.embed_tokens.weight)
             else:
                 x = self.fc_out(x) #generation probability
-
-        print(x.size())        
+        
         return x
 
     def reorder_incremental_state(self, incremental_state, new_order):
