@@ -7,9 +7,15 @@ import logging
 
 import numpy as np
 import torch
+import copy
 
 from . import data_utils, FairseqDataset, dictionary
 from collections import Counter
+from fairseq import metrics, options, utils
+from fairseq.models.lstm import Embedding
+
+
+
 
 logger = logging.getLogger(__name__)
 def convert_to_dict_object(dict_name):
@@ -29,7 +35,7 @@ class SrcObject(object):
         #print(basic_dict.indices)
         self.sequence = [basic_dict.symbols[int(s)] for s in sequence] #optimize this!
         
-        self.basic_dict = basic_dict
+        self.basic_dict = copy.deepcopy(basic_dict)
         self.col_length = col_length
         self.col_dict = None
         self.index_sequence = None
@@ -57,13 +63,14 @@ class SqlObject(object):
         #self.col_dict = convert_to_dict_object(col_dict)
         self.basic_dict.update(col_dict)
         self.convert_sequence_to_ids()
+       
 
     def convert_sequence_to_ids(self):
         self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
 
 
 def collate(
-    samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
+    samples, pad_idx, eos_idx, src_embedding, tgt_embedding,  left_pad_source=True, left_pad_target=False,
     input_feeding=True,
 ):
     if len(samples) == 0:
@@ -79,7 +86,9 @@ def collate(
     id = torch.LongTensor([s['id'] for s in samples])
     src_tokens = merge('source', left_pad=left_pad_source)
     # sort by descending source length
-    src_lengths = torch.LongTensor([s['source'].index_sequence.numel() for s in samples])
+    #src_lengths = torch.LongTensor([s['source'].index_sequence.numel() for s in samples])
+    src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+    
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
@@ -117,13 +126,14 @@ def collate(
             'src_tokens': src_tokens,
             'src_lengths': src_lengths,
             'col_lengths': col_lengths,
+            'src_embedding': src_embedding,
         },
         'target': target,
         #'sql_dict': target_dict,
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
-
+        batch['net_input']['tgt_embedding'] = tgt_embedding #where will this go?
 
     return batch
 
@@ -162,7 +172,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
 
     def __init__(
         self, src, src_sizes, src_dict, col_sizes,  
-        sql, sql_sizes, sql_dict,  
+        sql, sql_sizes, sql_dict,  embed_path, embed_dim, 
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True,
@@ -190,6 +200,13 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.append_eos_to_target = append_eos_to_target
         self.append_bos = append_bos
 
+        self.src_embedding = load_pretrained_embedding_from_file(
+                        embed_path, self.src_dict, embed_dim)
+
+        self.tgt_embedding = load_pretrained_embedding_from_file(
+                        embed_path, self.sql_dict, embed_dim)
+
+
     def __getitem__(self, index):
         sql_item = self.sql[index] 
         src_item = self.src[index]
@@ -216,8 +233,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
             eos = self.src_dict.eos()
             if self.src[index][-1] == eos:
                 src_item = self.src[index][:-1]
-        src_item = SrcObject(index, src_item, self.src_dict, col_item)
-        sql_item = SqlObject(index, sql_item, self.sql_dict, src_item.col_dict)
+        #src_item = SrcObject(index, src_item, self.src_dict, col_item)
+        #sql_item = SqlObject(index, sql_item, self.sql_dict, src_item.col_dict)
         example = {
             'id': index,
             'source': src_item,
@@ -259,7 +276,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
                   on the left if *left_pad_target* is ``True``.
         """
         return collate(
-            samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
+            samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), self.src_embedding, self.tgt_embedding, 
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
         )

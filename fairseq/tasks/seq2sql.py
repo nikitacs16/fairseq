@@ -12,6 +12,8 @@ import os
 import numpy as np
 
 from fairseq import metrics, options, utils
+from fairseq.models.lstm import Embedding
+
 from fairseq.data import (
     AppendTokenDataset,
     ConcatDataset,
@@ -162,6 +164,7 @@ class Seq2SqlTask(FairseqTask):
         # load dictionaries
         src_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.src.txt'))
         sql_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.sql.txt'))
+
         
         assert src_dict.pad() == sql_dict.pad()
         assert src_dict.eos() == sql_dict.eos()
@@ -185,12 +188,14 @@ class Seq2SqlTask(FairseqTask):
         data_path = paths[epoch % len(paths)]
         
 
-        # infer langcode
-        src = 'input'
-        sql = 'out'
+        
+        src_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
+        sql_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
+
+
 
         self.datasets[split] = load_seq_sql_dataset(
-            data_path, split, src, self.src_dict, sql, self.sql_dict,  
+            data_path, split, src, src_dict, sql, sql_dict,  
             dataset_impl=self.args.dataset_impl,
             upsample_primary=self.args.upsample_primary,
             left_pad_source=self.args.left_pad_source,

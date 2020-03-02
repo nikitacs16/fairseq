@@ -352,10 +352,10 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         self.share_input_output_embed = share_input_output_embed
         self.need_attn = True
         self.max_target_positions = max_target_positions
-        self.dictionary_tables = 2000 #
+        self.dictionary_extra = 1000 #
         self.adaptive_softmax = None
         self.copy_attention_simple = copy_attention_simple
-        num_embeddings = len(dictionary) + 2000
+        num_embeddings = len(dictionary) + self.dictionary_extra
         self.num_embeddings = num_embeddings
         padding_idx = dictionary.pad()
         if pretrained_embed is None:
@@ -391,7 +391,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
             self.linear_sql = Linear(hidden_size, len(dictionary))
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, 2000) #update this!
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, self.dictionary_extra) #update this!
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -402,9 +402,9 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
-    def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs):
+    def forward(self, prev_output_tokens, tgt_embedding, encoder_out=None, incremental_state=None, **kwargs):
         x, attn_scores, copy_attention_scores = self.extract_features(
-            prev_output_tokens, encoder_out, incremental_state
+            prev_output_tokens, tgt_embedding, encoder_out, incremental_state
         )
         return self.output_layer(x), attn_scores, copy_attention_scores
 
@@ -443,7 +443,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             srclen = None
 
         # embed tokens
-        x = self.embed_tokens(prev_output_tokens)
+        x = tgt_embedding(prev_output_tokens)
         x = F.dropout(x, p=self.dropout_in, training=self.training)
 
         # B x T x C -> T x B x C
@@ -508,7 +508,10 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
                 m_column = self.bilinear_col(temp_o_k,out_copy) #split for table words
                 out = torch.cat((m_sql, m_column), 1)
+            
             #if self.copy_attention_pointer:
+             #   p_gen = self.(torch.cat(out_plain, ))
+
              #   pass
             
             out = F.dropout(out, p=self.dropout_out, training=self.training)
