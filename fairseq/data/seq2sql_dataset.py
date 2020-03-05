@@ -16,6 +16,15 @@ from fairseq.models.lstm import Embedding
 
 
 
+def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):  
+    num_embeddings = len(dictionary)
+    padding_idx = dictionary.pad()
+    embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
+    embed_dict = utils.parse_embedding(embed_path)
+    utils.print_embed_overlap(embed_dict, dictionary)
+    return utils.load_embedding(embed_dict, dictionary, embed_tokens)
+
+
 
 logger = logging.getLogger(__name__)
 def convert_to_dict_object(dict_name):
@@ -127,14 +136,14 @@ def collate(
             'src_lengths': src_lengths,
             'col_lengths': col_lengths,
             'src_embedding': src_embedding,
+            'tgt_embedding': tgt_embedding,
         },
         'target': target,
         #'sql_dict': target_dict,
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
-        batch['net_input']['tgt_embedding'] = tgt_embedding #where will this go?
-
+        
     return batch
 
 

@@ -159,6 +159,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
         decoder = LSTMSQLDecoder(  
             dictionary=task.target_dictionary,
+            table_dictionary_size=task.table_dictionary_size,
             embed_dim=args.decoder_embed_dim,
             hidden_size=args.decoder_hidden_size,
             out_embed_dim=args.decoder_out_embed_dim,
@@ -178,9 +179,9 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
         )
         return cls(encoder, decoder)
 
-    def forward(self, src_tokens, src_lengths, col_lengths, prev_output_tokens,  **kwargs):
-        encoder_out = self.encoder(src_tokens, src_lengths, col_lengths)
-        decoder_out = self.decoder(prev_output_tokens, encoder_out=encoder_out, **kwargs)
+    def forward(self, src_tokens, src_lengths, col_lengths, src_embedding, tgt_embedding, prev_output_tokens, **kwargs):
+        encoder_out = self.encoder(src_tokens, src_lengths, col_lengths, src_embedding)
+        decoder_out = self.decoder(prev_output_tokens, tgt_embedding, encoder_out=encoder_out, **kwargs)
 
         return decoder_out
 
@@ -233,7 +234,6 @@ class LSTMConcatEncoder(FairseqEncoder):
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
         self.max_source_positions = max_source_positions
-
         num_embeddings = len(dictionary)
         self.padding_idx = dictionary.pad()
         if pretrained_embed is None:
@@ -255,7 +255,7 @@ class LSTMConcatEncoder(FairseqEncoder):
         if bidirectional:
             self.output_units *= 2
 
-    def forward(self, src_tokens, src_lengths, col_lengths):
+    def forward(self, src_tokens, src_lengths, col_lengths, src_embedding=None):
         if self.left_pad:
             # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
@@ -268,7 +268,10 @@ class LSTMConcatEncoder(FairseqEncoder):
         bsz, seqlen = src_tokens.size()
 
         # embed tokens
-        x = self.embed_tokens(src_tokens)
+        if src_embedding is not None:
+            x = src_embedding(src_tokens)
+        else:
+            x = self.embed_tokens(src_tokens)
         x = F.dropout(x, p=self.dropout_in, training=self.training)
 
         # B x T x C -> T x B x C
@@ -338,13 +341,13 @@ class LSTMConcatEncoder(FairseqEncoder):
 class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target dictionary with the OOV included!
     """LSTM decoder."""
     def __init__( 
-        self, dictionary, embed_dim=512, hidden_size=512, out_embed_dim=512,
+        self, dictionary, table_dictionary_size=None, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, attention=True, 
         copy_attention_simple=True,
-        encoder_output_units=512, pretrained_embed=None,
+        encoder_output_units=512, pretrained_embed=None, pretrained_embed_dim=None,
         share_input_output_embed=False, adaptive_softmax_cutoff=None,
         max_target_positions=DEFAULT_MAX_TARGET_POSITIONS,
-    ):
+    ): 
         super().__init__(dictionary)
         self.dropout_in = dropout_in
         self.dropout_out = dropout_out
@@ -352,17 +355,18 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         self.share_input_output_embed = share_input_output_embed
         self.need_attn = True
         self.max_target_positions = max_target_positions
-        self.dictionary_extra = 1000 #
+        self.table_dictionary = table_dictionary 
         self.adaptive_softmax = None
+
         self.copy_attention_simple = copy_attention_simple
-        num_embeddings = len(dictionary) + self.dictionary_extra
-        self.num_embeddings = num_embeddings
+        self.num_embeddings = len(dictionary) + table_dictionary
         padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
         else:
             self.embed_tokens = pretrained_embed
 
+        self.pretrained_embed_dim = pretrained_embed_dim
         self.encoder_output_units = encoder_output_units
         if encoder_output_units != hidden_size and encoder_output_units != 0:
             self.encoder_hidden_proj = Linear(encoder_output_units, hidden_size)
@@ -391,7 +395,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
             self.linear_sql = Linear(hidden_size, len(dictionary))
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, hidden_size, self.dictionary_extra) #update this!
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, pretrained_embed_dim, table_dictionary_size) #update this!
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -409,14 +413,12 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         return self.output_layer(x), attn_scores, copy_attention_scores
 
     def extract_features(
-        self, prev_output_tokens, encoder_out, incremental_state=None
+        self, prev_output_tokens, tgt_embedding, encoder_out, incremental_state=None
     ):
         """
         Similar to *forward* but only return features.
         """
         if self.copy_attention_simple:
-            
-
             encoder_copy_padding_mask = encoder_out['encoder_copy_padding_mask']
         else:
             encoder_copy_padding_mask = None
@@ -476,6 +478,9 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         attn_copy_scores = x.new_zeros(srclen, seqlen, bsz) if self.copy_attention_simple is not None else None
 
         outs = []
+        if self.copy_attention_simple 
+            current_output_embeddings = tgt_embedding(torch.arange(num_embeddings - self.table_dictionary_size, num_embeddings)).repeat(bsz).view(bsz,-1, self.pretrained_embed_dim) #num_embeddings * 300
+        
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
             if input_feed is not None:
@@ -506,7 +511,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 out_cat = torch.cat((out_plain, out_copy), 1) #concat!
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
-                m_column = self.bilinear_col(temp_o_k,out_copy) #split for table words
+                m_column = self.bilinear_col(temp_o_k,current_output_embeddings) #split for table words
                 out = torch.cat((m_sql, m_column), 1)
             
             #if self.copy_attention_pointer:
