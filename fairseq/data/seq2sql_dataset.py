@@ -8,12 +8,19 @@ import logging
 import numpy as np
 import torch
 import copy
+import torch.nn as nn
+
 
 from . import data_utils, FairseqDataset, dictionary
 from collections import Counter
 from fairseq import metrics, options, utils
-from fairseq.models.lstm import Embedding
 
+def Embedding(num_embeddings, embedding_dim, padding_idx):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.uniform_(m.weight, -0.1, 0.1)
+    nn.init.constant_(m.weight[padding_idx], 0)
+    #print(size(m))
+    return m
 
 
 def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):  
@@ -79,7 +86,7 @@ class SqlObject(object):
 
 
 def collate(
-    samples, pad_idx, eos_idx, src_embedding, tgt_embedding,  left_pad_source=True, left_pad_target=False,
+    samples, src_embedding, tgt_embedding, pad_idx, eos_idx,  left_pad_source=True, left_pad_target=False,
     input_feeding=True,
 ):
     if len(samples) == 0:
@@ -181,7 +188,9 @@ class Seq2SqlPairDataSet(FairseqDataset):
 
     def __init__(
         self, src, src_sizes, src_dict, col_sizes,  
-        sql, sql_sizes, sql_dict,  embed_path, embed_dim, 
+        sql, sql_sizes, sql_dict,  
+        encoder_embed_path, encoder_embed_dim,
+        decoder_embed_path, decoder_embed_dim,
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True,
@@ -210,10 +219,10 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.append_bos = append_bos
 
         self.src_embedding = load_pretrained_embedding_from_file(
-                        embed_path, self.src_dict, embed_dim)
+                        encoder_embed_path, self.src_dict, encoder_embed_dim)
 
         self.tgt_embedding = load_pretrained_embedding_from_file(
-                        embed_path, self.sql_dict, embed_dim)
+                        decoder_embed_path, self.sql_dict, decoder_embed_dim)
 
 
     def __getitem__(self, index):
@@ -285,7 +294,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
                   on the left if *left_pad_target* is ``True``.
         """
         return collate(
-            samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), self.src_embedding, self.tgt_embedding, 
+            samples, self.src_embedding, self.tgt_embedding, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), 
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
         )

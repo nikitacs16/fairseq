@@ -41,7 +41,9 @@ def get_col_sizes(filename):
         size_list.append(int(i.strip()))
     return size_list
 
-def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,  
+def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
+        encoder_embed_path, encoder_embed_dim,
+        decoder_embed_path, decoder_embed_dim,
         dataset_impl, upsample_primary, 
         left_pad_source,
         left_pad_target,
@@ -91,7 +93,9 @@ def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
 
     return Seq2SqlPairDataSet(
         src_dataset, src_dataset.sizes, src_dict, col_sizes,
-        sql_dataset, sql_dataset.sizes, sql_dict, 
+        sql_dataset, sql_dataset.sizes, sql_dict,
+        encoder_embed_path, encoder_embed_dim,
+        decoder_embed_path, decoder_embed_dim,
         left_pad_source=left_pad_source,
         left_pad_target=left_pad_target,
         max_source_positions=max_source_positions,
@@ -187,15 +191,21 @@ class Seq2SqlTask(FairseqTask):
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
         
-
+        src = 'input'
+        sql = 'out'
         
-        src_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
-        sql_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
-
+        #src_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
+        #sql_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
+        src_dict = self.src_dict
+        sql_dict = self.sql_dict
 
 
         self.datasets[split] = load_seq_sql_dataset(
-            data_path, split, src, src_dict, sql, sql_dict,  
+            data_path, split, src, src_dict, sql, sql_dict,
+            encoder_embed_path=self.args.encoder_embed_path, 
+            encoder_embed_dim=self.args.encoder_embed_dim,
+            decoder_embed_path=self.args.decoder_embed_path, 
+            decoder_embed_dim=self.args.decoder_embed_dim,
             dataset_impl=self.args.dataset_impl,
             upsample_primary=self.args.upsample_primary,
             left_pad_source=self.args.left_pad_source,

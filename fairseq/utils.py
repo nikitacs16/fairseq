@@ -14,7 +14,7 @@ import warnings
 from collections import defaultdict
 from itertools import accumulate
 from typing import Callable, Dict, List, Optional
-
+from tqdm import *
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -123,7 +123,7 @@ def parse_embedding(embed_path):
     embed_dict = {}
     with open(embed_path) as f_embed:
         next(f_embed)  # skip header
-        for line in f_embed:
+        for line in tqdm(f_embed):
             pieces = line.rstrip().split(" ")
             embed_dict[pieces[0]] = torch.Tensor(
                 [float(weight) for weight in pieces[1:]]

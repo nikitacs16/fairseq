@@ -159,7 +159,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
         decoder = LSTMSQLDecoder(  
             dictionary=task.target_dictionary,
-            table_dictionary_size=task.table_dictionary_size,
+            table_dictionary_size=10,
             embed_dim=args.decoder_embed_dim,
             hidden_size=args.decoder_hidden_size,
             out_embed_dim=args.decoder_out_embed_dim,
@@ -195,15 +195,15 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 def base_architecture(args):
     args.dropout = getattr(args, 'dropout', 0.1)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 300)
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
-    args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed', False)
+    args.encoder_embed_path = getattr(args, 'encoder_embed_path', '/home/nikita/Downloads/glove.840B.300d.txt')
+    args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed',True)
     args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_embed_dim)
     args.encoder_layers = getattr(args, 'encoder_layers', 2)
     args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', False)
     args.encoder_dropout_in = getattr(args, 'encoder_dropout_in', args.dropout)
     args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', args.dropout)
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 300)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
+    args.decoder_embed_path = getattr(args, 'decoder_embed_path', '/home/nikita/Downloads/glove.840B.300d.txt')
     args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
     args.decoder_layers = getattr(args, 'decoder_layers', 2)
@@ -341,7 +341,7 @@ class LSTMConcatEncoder(FairseqEncoder):
 class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target dictionary with the OOV included!
     """LSTM decoder."""
     def __init__( 
-        self, dictionary, table_dictionary_size=None, embed_dim=512, hidden_size=512, out_embed_dim=512,
+        self, dictionary, table_dictionary_size=10, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, attention=True, 
         copy_attention_simple=True,
         encoder_output_units=512, pretrained_embed=None, pretrained_embed_dim=None,
@@ -478,7 +478,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         attn_copy_scores = x.new_zeros(srclen, seqlen, bsz) if self.copy_attention_simple is not None else None
 
         outs = []
-        if self.copy_attention_simple 
+        if self.copy_attention_simple:
             current_output_embeddings = tgt_embedding(torch.arange(num_embeddings - self.table_dictionary_size, num_embeddings)).repeat(bsz).view(bsz,-1, self.pretrained_embed_dim) #num_embeddings * 300
         
         for j in range(seqlen):
