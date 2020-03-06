@@ -159,7 +159,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
         decoder = LSTMSQLDecoder(  
             dictionary=task.target_dictionary,
-            table_dictionary_size=10,
+            sql_dictionary_size=10,
             embed_dim=args.decoder_embed_dim,
             hidden_size=args.decoder_hidden_size,
             out_embed_dim=args.decoder_out_embed_dim,
@@ -194,20 +194,20 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 @register_model_architecture('concatseq2seq', 'concatseq2seq')
 def base_architecture(args):
     args.dropout = getattr(args, 'dropout', 0.1)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 300)
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', '/home/nikita/Downloads/glove.840B.300d.txt')
+    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 50)
+    args.encoder_embed_path = getattr(args, 'encoder_embed_path', '/home/nikita/Downloads/glove.6B.50d.txt')
     args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed',True)
     args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_embed_dim)
     args.encoder_layers = getattr(args, 'encoder_layers', 2)
     args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', False)
     args.encoder_dropout_in = getattr(args, 'encoder_dropout_in', args.dropout)
     args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', args.dropout)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 300)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', '/home/nikita/Downloads/glove.840B.300d.txt')
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 50)
+    args.decoder_embed_path = getattr(args, 'decoder_embed_path', '/home/nikita/Downloads/glove.6B.50d.txt')
     args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
     args.decoder_layers = getattr(args, 'decoder_layers', 2)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 300)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 50)
     args.decoder_attention = getattr(args, 'decoder_attention', '1')
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
     args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
@@ -240,6 +240,7 @@ class LSTMConcatEncoder(FairseqEncoder):
             self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
         else:
             self.embed_tokens = pretrained_embed
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.lstm = LSTM(
             input_size=embed_dim,
@@ -269,9 +270,13 @@ class LSTMConcatEncoder(FairseqEncoder):
 
         # embed tokens
         if src_embedding is not None:
-            x = src_embedding(src_tokens)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            src_embedding.to(device)
+
+            x = src_embedding(src_tokens.cuda())
         else:
             x = self.embed_tokens(src_tokens)
+        
         x = F.dropout(x, p=self.dropout_in, training=self.training)
 
         # B x T x C -> T x B x C
@@ -341,7 +346,7 @@ class LSTMConcatEncoder(FairseqEncoder):
 class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target dictionary with the OOV included!
     """LSTM decoder."""
     def __init__( 
-        self, dictionary, table_dictionary_size=10, embed_dim=512, hidden_size=512, out_embed_dim=512,
+        self, dictionary, sql_dictionary_size=10, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, attention=True, 
         copy_attention_simple=True,
         encoder_output_units=512, pretrained_embed=None, pretrained_embed_dim=None,
@@ -355,11 +360,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         self.share_input_output_embed = share_input_output_embed
         self.need_attn = True
         self.max_target_positions = max_target_positions
-        self.table_dictionary = table_dictionary 
+        self.sql_dictionary_size = sql_dictionary_size 
         self.adaptive_softmax = None
 
         self.copy_attention_simple = copy_attention_simple
-        self.num_embeddings = len(dictionary) + table_dictionary
+        self.num_embeddings = len(dictionary) 
         padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
@@ -394,8 +399,8 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
-            self.linear_sql = Linear(hidden_size, len(dictionary))
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, pretrained_embed_dim, table_dictionary_size) #update this!
+            self.linear_sql = Linear(hidden_size, sql_dictionary_size)
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, 50, self.num_embeddings - sql_dictionary_size) #update this!
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -445,7 +450,18 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             srclen = None
 
         # embed tokens
-        x = tgt_embedding(prev_output_tokens)
+        if tgt_embedding is not None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            tgt_embedding.to(device)
+            x = tgt_embedding(prev_output_tokens)
+            #print(self.num_embeddings - self.sql_dictionary_size)
+
+            #print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
+            output_embedding = tgt_embedding(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+        else:
+            x = self.embed_tokens(prev_output_tokens)
+
+        
         x = F.dropout(x, p=self.dropout_in, training=self.training)
 
         # B x T x C -> T x B x C
@@ -478,9 +494,13 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         attn_copy_scores = x.new_zeros(srclen, seqlen, bsz) if self.copy_attention_simple is not None else None
 
         outs = []
-        if self.copy_attention_simple:
-            current_output_embeddings = tgt_embedding(torch.arange(num_embeddings - self.table_dictionary_size, num_embeddings)).repeat(bsz).view(bsz,-1, self.pretrained_embed_dim) #num_embeddings * 300
         
+        '''
+        if self.copy_attention_simple:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            tgt_embedding.to(device)
+            current_output_embeddings = tgt_embedding(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings).repeat(bsz)).view(bsz,-1, 50) #num_embeddings * 300
+        '''
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
             if input_feed is not None:
@@ -511,7 +531,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 out_cat = torch.cat((out_plain, out_copy), 1) #concat!
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
-                m_column = self.bilinear_col(temp_o_k,current_output_embeddings) #split for table words
+                m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words
                 out = torch.cat((m_sql, m_column), 1)
             
             #if self.copy_attention_pointer:

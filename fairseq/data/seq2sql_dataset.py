@@ -94,7 +94,7 @@ def collate(
 
     def merge(key, left_pad, move_eos_to_beginning=False):
         return data_utils.collate_tokens(
-            [s[key].index_sequence for s in samples],
+            [s[key] for s in samples],
             pad_idx, eos_idx, left_pad, move_eos_to_beginning,
         )
 
@@ -108,16 +108,16 @@ def collate(
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
-    src_dict = [samples[k]['source'].basic_dict for k in sort_order]
+    src_dict = [samples[k]['source']for k in sort_order]
     col_lengths = torch.LongTensor([s['column_sizes'] for s in samples]).index_select(0,sort_order)
     prev_output_tokens = None
     target = None
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        target_dict = [samples[k]['target'].basic_dict for k in sort_order]
-        sql_lengths = torch.LongTensor([s['target'].index_sequence.numel() for s in samples]).index_select(0, sort_order)
-        ntokens = sum(len(s['target'].sequence) for s in samples)
+        target_dict = [samples[k]['target'] for k in sort_order]
+        sql_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
+        ntokens = sum(len(s['target']) for s in samples)
 
         if input_feeding:
             # we create a shifted version of targets for feeding the
