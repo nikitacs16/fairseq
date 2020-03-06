@@ -118,7 +118,7 @@ def collate(
         target_dict = [samples[k]['target'] for k in sort_order]
         sql_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
         ntokens = sum(len(s['target']) for s in samples)
-
+        
         if input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
@@ -144,6 +144,7 @@ def collate(
             'col_lengths': col_lengths,
             'src_embedding': src_embedding,
             'tgt_embedding': tgt_embedding,
+            'valid_indices' : valid_indices,
         },
         'target': target,
         #'sql_dict': target_dict,

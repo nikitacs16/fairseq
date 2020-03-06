@@ -194,10 +194,12 @@ class Seq2SqlTask(FairseqTask):
         src = 'input'
         sql = 'out'
         
-        #src_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
-        #sql_dict = cls.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
-        src_dict = self.src_dict
-        sql_dict = self.sql_dict
+        src_dict = self.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
+        if src_dict == self.src_dict:
+            print('whaaat')
+        sql_dict = self.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
+        #src_dict = self.src_dict
+        #sql_dict = self.sql_dict
 
 
         self.datasets[split] = load_seq_sql_dataset(
