@@ -159,7 +159,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
         decoder = LSTMSQLDecoder(  
             dictionary=task.target_dictionary,
-            sql_dictionary_size=10,
+            sql_dictionary_size=task.target_dictionary.index('<EOV>')+1,
             embed_dim=args.decoder_embed_dim,
             hidden_size=args.decoder_hidden_size,
             out_embed_dim=args.decoder_out_embed_dim,
@@ -346,7 +346,7 @@ class LSTMConcatEncoder(FairseqEncoder):
 class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target dictionary with the OOV included!
     """LSTM decoder."""
     def __init__( 
-        self, dictionary, sql_dictionary_size=10, embed_dim=512, hidden_size=512, out_embed_dim=512,
+        self, dictionary, sql_dictionary_size=52, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, attention=True, 
         copy_attention_simple=True,
         encoder_output_units=512, pretrained_embed=None, pretrained_embed_dim=None,
@@ -400,7 +400,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
             self.o_k = Linear(3*hidden_size,hidden_size)
             self.linear_sql = Linear(hidden_size, sql_dictionary_size)
-            self.bilinear_col = torch.nn.Bilinear(hidden_size, decoder_embed_dim, len(dictionary) - sql_dictionary_size) 
+            self.bilinear_col = torch.nn.Bilinear(hidden_size, embed_dim, len(dictionary) - sql_dictionary_size) 
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)

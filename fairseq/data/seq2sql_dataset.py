@@ -85,9 +85,15 @@ class SqlObject(object):
         self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
 
 
+def get_valid_indices(sequence,mapping_dict,len_sql_dict):      
+    valid_indices = list(np.arange(len_sql_dict))
+    for i in set(sequence):
+        valid_indices.append(mapping_dict[i])
+    return sorted(valid_indices)
+
 def collate(
     samples, src_embedding, tgt_embedding, pad_idx, eos_idx,  left_pad_source=True, left_pad_target=False,
-    input_feeding=True,
+    input_feeding=True, eot_symbol = 4, mapping_dict=None, len_sql_dict=53
 ):
     if len(samples) == 0:
         return {}
@@ -104,21 +110,22 @@ def collate(
     # sort by descending source length
     #src_lengths = torch.LongTensor([s['source'].index_sequence.numel() for s in samples])
     src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    
+    #eot_symbol = torch.Tensor(eot_symbol)
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
-    src_dict = [samples[k]['source']for k in sort_order]
-    col_lengths = torch.LongTensor([s['column_sizes'] for s in samples]).index_select(0,sort_order)
+    flatten_source = [s['source'].flatten().tolist() for s in samples]
+    col_lengths_unordered = [s.index(eot_symbol) for s in flatten_source]
+    col_lengths = torch.LongTensor(col_lengths_unordered).index_select(0,sort_order)
+    valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict) for s in sort_order.flatten().tolist()]
     prev_output_tokens = None
     target = None
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        target_dict = [samples[k]['target'] for k in sort_order]
         sql_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
         ntokens = sum(len(s['target']) for s in samples)
-        
+
         if input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
@@ -144,7 +151,7 @@ def collate(
             'col_lengths': col_lengths,
             'src_embedding': src_embedding,
             'tgt_embedding': tgt_embedding,
-            'valid_indices' : valid_indices,
+            'valid_indices': valid_indices,
         },
         'target': target,
         #'sql_dict': target_dict,
@@ -188,7 +195,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
     """
 
     def __init__(
-        self, src, src_sizes, src_dict, col_sizes,  
+        self, src, src_sizes, src_dict,  
         sql, sql_sizes, sql_dict,  
         encoder_embed_path, encoder_embed_dim,
         decoder_embed_path, decoder_embed_dim,
@@ -207,7 +214,10 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.src_dict = src_dict
         self.sql_dict = sql_dict
         self.src_sizes = np.array(src_sizes)
-        self.col_sizes = np.array(col_sizes)
+        self.eot_symbol = self.src_dict.index('<EOT>')
+        self.eov_symbol = self.src_dict.index('<EOV>')
+        
+        #print()
         self.sql_sizes = np.array(sql_sizes) 
         self.left_pad_source = left_pad_source
         self.left_pad_target = left_pad_target
@@ -218,7 +228,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.remove_eos_from_source = remove_eos_from_source
         self.append_eos_to_target = append_eos_to_target
         self.append_bos = append_bos
-
+        self.mapping_dict = None
+        self.create_mapper()
         self.src_embedding = load_pretrained_embedding_from_file(
                         encoder_embed_path, self.src_dict, encoder_embed_dim)
 
@@ -229,7 +240,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
     def __getitem__(self, index):
         sql_item = self.sql[index] 
         src_item = self.src[index]
-        col_item = self.col_sizes[index]
+        
         # Append EOS to end of sql sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
         # use existing datasets for opposite directions i.e., when we want to
@@ -258,7 +269,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
             'id': index,
             'source': src_item,
             'target': sql_item,
-            'column_sizes': col_item,
+          
         }
         return example
 
@@ -297,8 +308,19 @@ class Seq2SqlPairDataSet(FairseqDataset):
         return collate(
             samples, self.src_embedding, self.tgt_embedding, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), 
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
-            input_feeding=self.input_feeding,
+            input_feeding=self.input_feeding, eot_symbol=self.eot_symbol, mapping_dict=self.mapping_dict, 
+            len_sql_dict=self.eov_symbol + 1
         )
+
+
+    def create_mapper(self):
+        new_dict = {}
+        src_tokens = self.src_dict.symbols
+        sql_tokens = self.sql_dict.symbols
+        common_symbols = set(src_tokens).intersection(sql_tokens)
+        for c in common_symbols:
+            new_dict[self.src_dict.index(c)] = self.sql_dict.index(c)
+        self.mapping_dict = new_dict
 
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to
