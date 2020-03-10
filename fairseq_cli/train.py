@@ -213,6 +213,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
 
     valid_losses = []
     for subset in subsets:
+        print(subset)
         # Initialize data iterator
         itr = task.get_batch_iterator(
             dataset=task.dataset(subset),

@@ -179,10 +179,10 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
         )
         return cls(encoder, decoder)
 
+
     def forward(self, src_tokens, src_lengths, col_lengths, src_embedding, tgt_embedding, valid_indices, prev_output_tokens, **kwargs):
         encoder_out = self.encoder(src_tokens, src_lengths, col_lengths, src_embedding)
         decoder_out = self.decoder(prev_output_tokens, valid_indices, tgt_embedding, encoder_out=encoder_out, **kwargs)
-
         return decoder_out
 
 
@@ -214,6 +214,9 @@ def base_architecture(args):
     args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
     args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
     args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', '10000,50000,200000')
+    args.left_pad_source = getattr(args, 'left_pad_source', False)
+    args.left_pad_target = getattr(args, 'left_pad_target', False)
+
 
 
 ##See the file for creating other pre-trained embeddings! https://github.com/pytorch/fairseq/blob/master/fairseq/models/lstm.py
@@ -284,7 +287,6 @@ class LSTMConcatEncoder(FairseqEncoder):
 
         # pack embedded source tokens into a PackedSequence
         packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data.tolist())
-
         # apply LSTM
         if self.bidirectional:
             state_size = 2 * self.num_layers, bsz, self.hidden_size
@@ -321,7 +323,7 @@ class LSTMConcatEncoder(FairseqEncoder):
         encoder_copy_padding_mask = torch.zeros(src_tokens.size())
         for c in range(src_tokens.size(0)):
             encoder_copy_padding_mask[c,:col_lengths[c]] = 1
-        encoder_copy_padding_mask = (encoder_copy_padding_mask == 1)
+        encoder_copy_padding_mask = (encoder_copy_padding_mask != 1)
         return encoder_copy_padding_mask
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -414,13 +416,14 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
     def get_decoder_padding_mask(self, valid_indices, bsz):
         decoder_padding_mask = torch.zeros(bsz, self.num_embeddings)
         for c in range(bsz):
-            encoder_copy_padding_mask[c,valid_indices[c]] = 1.0
-        return decoder_copy_padding_mask
+            decoder_padding_mask[c,valid_indices[c]] = 1.0
+        decoder_padding_mask = (decoder_padding_mask != 1) #Elements that need to be masked should be True
+        return decoder_padding_mask
         
 
-    def forward(self, prev_output_tokens, tgt_embedding, encoder_out=None, incremental_state=None, **kwargs):
+    def forward(self, prev_output_tokens, valid_indices, tgt_embedding, encoder_out=None, incremental_state=None, **kwargs):
         x, attn_scores, copy_attention_scores = self.extract_features(
-            prev_output_tokens, tgt_embedding, encoder_out, incremental_state
+            prev_output_tokens, valid_indices, tgt_embedding, encoder_out, incremental_state
         )
         return self.output_layer(x), attn_scores, copy_attention_scores
 
@@ -430,8 +433,12 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         """
         Similar to *forward* but only return features.
         """
- 
+
+       
         if encoder_out is not None:
+            if self.copy_attention_simple:
+                encoder_copy_padding_mask = encoder_out['encoder_copy_padding_mask']
+        
             encoder_padding_mask = encoder_out['encoder_padding_mask']
             encoder_out = encoder_out['encoder_out']
         else:
@@ -443,13 +450,9 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
         bsz, seqlen = prev_output_tokens.size()
-
-        if self.copy_attention_simple:
-            encoder_copy_padding_mask = encoder_out['encoder_copy_padding_mask']
-            decoder_padding_mask = self.get_decoder_padding_mask(bsz, valid_indices)
-        else:
-            encoder_copy_padding_mask = None
-
+        
+        decoder_padding_mask = self.get_decoder_padding_mask(valid_indices,bsz)
+        
 
         # get outputs from encoder
         if encoder_out is not None:
@@ -467,7 +470,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
             #print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
             output_embedding = tgt_embedding(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
-        else:
+        else:   
             x = self.embed_tokens(prev_output_tokens)
 
         
@@ -541,9 +544,9 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
                 m_sql = self.linear_sql(temp_o_k) #split for sql keywords
                 m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words
-                m_column = m_column * decoder_padding_mask
+                #m_column = m_column * decoder_padding_mask
                 out = torch.cat((m_sql, m_column), 1)
-            
+                out = out.float().masked_fill_(decoder_padding_mask.cuda(),float('1e-32')).type_as(out)
             #if self.copy_attention_pointer:
              #   p_gen = self.(torch.cat(out_plain, ))
 

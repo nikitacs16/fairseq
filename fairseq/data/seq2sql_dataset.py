@@ -92,7 +92,7 @@ def get_valid_indices(sequence,mapping_dict,len_sql_dict):
     return sorted(valid_indices)
 
 def collate(
-    samples, src_embedding, tgt_embedding, pad_idx, eos_idx,  left_pad_source=True, left_pad_target=False,
+    samples, src_embedding, tgt_embedding, pad_idx, eos_idx,  left_pad_source=False, left_pad_target=False,
     input_feeding=True, eot_symbol = 4, mapping_dict=None, len_sql_dict=53
 ):
     if len(samples) == 0:
@@ -104,13 +104,10 @@ def collate(
             pad_idx, eos_idx, left_pad, move_eos_to_beginning,
         )
 
-
     id = torch.LongTensor([s['id'] for s in samples])
     src_tokens = merge('source', left_pad=left_pad_source)
     # sort by descending source length
-    #src_lengths = torch.LongTensor([s['source'].index_sequence.numel() for s in samples])
     src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    #eot_symbol = torch.Tensor(eot_symbol)
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
@@ -118,12 +115,13 @@ def collate(
     col_lengths_unordered = [s.index(eot_symbol) for s in flatten_source]
     col_lengths = torch.LongTensor(col_lengths_unordered).index_select(0,sort_order)
     valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict) for s in sort_order.flatten().tolist()]
+
     prev_output_tokens = None
     target = None
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        sql_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
+        tgt_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
         ntokens = sum(len(s['target']) for s in samples)
 
         if input_feeding:
@@ -136,9 +134,8 @@ def collate(
             )
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
-        ntokens = sum(len(s['source'].sequence) for s in samples)
-
-     
+        ntokens = sum(len(s['source']) for s in samples)
+   
 
     batch = {
         'id': id,
@@ -199,8 +196,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
         sql, sql_sizes, sql_dict,  
         encoder_embed_path, encoder_embed_dim,
         decoder_embed_path, decoder_embed_dim,
-        left_pad_source=True, left_pad_target=False,
-        max_source_positions=1024, max_target_positions=1024,
+        left_pad_source=False, left_pad_target=False,
+        max_source_positions=1500, max_target_positions=1024,
         shuffle=True, input_feeding=True,
         remove_eos_from_source=False, append_eos_to_target=False,
         append_bos = False
@@ -229,14 +226,14 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.append_eos_to_target = append_eos_to_target
         self.append_bos = append_bos
         self.mapping_dict = None
-        self.create_mapper()
+        self.create_mapper(src_dict, sql_dict)
         self.src_embedding = load_pretrained_embedding_from_file(
-                        encoder_embed_path, self.src_dict, encoder_embed_dim)
+                        encoder_embed_path, src_dict, encoder_embed_dim)
 
         self.tgt_embedding = load_pretrained_embedding_from_file(
-                        decoder_embed_path, self.sql_dict, decoder_embed_dim)
+                        decoder_embed_path, sql_dict, decoder_embed_dim)
 
-
+        #print(self.tgt_embedding)
     def __getitem__(self, index):
         sql_item = self.sql[index] 
         src_item = self.src[index]
@@ -313,13 +310,15 @@ class Seq2SqlPairDataSet(FairseqDataset):
         )
 
 
-    def create_mapper(self):
+    def create_mapper(self,src_dict,sql_dict):
         new_dict = {}
-        src_tokens = self.src_dict.symbols
-        sql_tokens = self.sql_dict.symbols
+        src_tokens = src_dict.symbols
+        sql_tokens = sql_dict.symbols
         common_symbols = set(src_tokens).intersection(sql_tokens)
+        print(len(src_dict))
+        print(len(common_symbols))
         for c in common_symbols:
-            new_dict[self.src_dict.index(c)] = self.sql_dict.index(c)
+            new_dict[src_dict.index(c)] = sql_dict.index(c)
         self.mapping_dict = new_dict
 
     def num_tokens(self, index):

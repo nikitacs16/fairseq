@@ -302,7 +302,7 @@ class AttentionLayer(nn.Module):
         if encoder_padding_mask is not None:
             attn_scores = attn_scores.float().masked_fill_(
                 encoder_padding_mask,
-                float('1e-8')
+                float('1e-32')
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
         attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz

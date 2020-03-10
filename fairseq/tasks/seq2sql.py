@@ -187,7 +187,6 @@ class Seq2SqlTask(FairseqTask):
             split (str): name of the split (e.g., train, valid, test)
         """
         paths = self.args.data.split(os.pathsep)
-        print(paths)
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
         
@@ -195,9 +194,6 @@ class Seq2SqlTask(FairseqTask):
         sql = 'sql'
         
         src_dict = self.load_dictionary(os.path.join(paths[0], split + '.dict.src.txt'))
-        if src_dict == self.src_dict:
-            print(split)
-            print('whaaat')
         sql_dict = self.load_dictionary(os.path.join(paths[0], split + '.dict.sql.txt'))
         #src_dict = self.src_dict
         #sql_dict = self.sql_dict
