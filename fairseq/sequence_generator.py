@@ -107,8 +107,20 @@ class SequenceGenerator(object):
         # separately, but SequenceGenerator directly calls model.encoder
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
-            if k != 'prev_output_tokens'
+            if k != 'prev_output_tokens' and k!='tgt_embedding' and k!='valid_indices'
         }
+
+        if 'tgt_embedding' in sample['net_input']:
+            decoder_input = {
+            k: v for k, v in sample['net_input'].items()
+            if k=='tgt_embedding' or k=='valid_indices'
+        }
+        else:
+            decoder_input = None
+
+
+
+            
 
         src_tokens = encoder_input['src_tokens']
         src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
@@ -271,9 +283,17 @@ class SequenceGenerator(object):
                 model.reorder_incremental_state(reorder_state)
                 encoder_outs = model.reorder_encoder_out(encoder_outs, reorder_state)
 
-            lprobs, avg_attn_scores = model.forward_decoder(
-                tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
-            )
+        
+            if decoder_input is not None:
+                lprobs, avg_attn_scores = model.forward_decoder(
+                    tokens[:, :step + 1], encoder_outs, temperature=self.temperature, valid_indices=decoder_input['valid_indices'], tgt_embedding=decoder_input['tgt_embedding']
+                )
+   
+            
+            else:
+                lprobs, avg_attn_scores = model.forward_decoder(
+                    tokens[:, :step + 1], encoder_outs, temperature=self.temperature
+                )
             lprobs[lprobs != lprobs] = -math.inf
 
             lprobs[:, self.pad] = -math.inf  # never select pad
@@ -525,7 +545,7 @@ class EnsembleModel(torch.nn.Module):
         return [model.encoder(**encoder_input) for model in self.models]
 
     @torch.no_grad()
-    def forward_decoder(self, tokens, encoder_outs, temperature=1.):
+    def forward_decoder(self, tokens, encoder_outs, temperature=1., valid_indices=None, tgt_embedding=None):
         if len(self.models) == 1:
             return self._decode_one(
                 tokens,
@@ -534,6 +554,8 @@ class EnsembleModel(torch.nn.Module):
                 self.incremental_states,
                 log_probs=True,
                 temperature=temperature,
+                valid_indices=valid_indices,
+                tgt_embedding=tgt_embedding
             )
 
         log_probs = []
@@ -546,6 +568,8 @@ class EnsembleModel(torch.nn.Module):
                 self.incremental_states,
                 log_probs=True,
                 temperature=temperature,
+                valid_indices=valid_indices,
+                tgt_embedding=tgt_embedding
             )
             log_probs.append(probs)
             if attn is not None:
@@ -560,14 +584,24 @@ class EnsembleModel(torch.nn.Module):
 
     def _decode_one(
         self, tokens, model, encoder_out, incremental_states, log_probs,
-        temperature=1.,
+        temperature=1., valid_indices=None, tgt_embedding=None
     ):
         if self.incremental_states is not None:
-            decoder_out = list(model.forward_decoder(
-                tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
-            ))
+            if tgt_embedding is not None:
+                decoder_out = list(model.forward_decoder(
+                    tokens,  valid_indices, tgt_embedding, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
+                ))
+
+
+            else:
+                decoder_out = list(model.forward_decoder(
+                    tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
+                ))
         else:
-            decoder_out = list(model.forward_decoder(tokens, encoder_out=encoder_out))
+            if tgt_embedding is not None:
+                decoder_out = list(model.forward_decoder(tokens, valid_indices, tgt_embedding, encoder_out=encoder_out))
+            else:
+                decoder_out = list(model.forward_decoder(tokens, encoder_out=encoder_out))
         decoder_out[0] = decoder_out[0][:, -1:, :]
         if temperature != 1.:
             decoder_out[0].div_(temperature)

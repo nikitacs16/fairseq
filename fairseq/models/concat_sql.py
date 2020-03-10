@@ -185,7 +185,8 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
         decoder_out = self.decoder(prev_output_tokens, valid_indices, tgt_embedding, encoder_out=encoder_out, **kwargs)
         return decoder_out
 
-
+    def forward_decoder(self, prev_output_tokens, valid_indices, tgt_embedding, encoder_out=None, incremental_state=None, **kwargs):
+        return self.decoder(prev_output_tokens, valid_indices, tgt_embedding, encoder_out=encoder_out, incremental_state=None, **kwargs)
 
 
 
@@ -416,7 +417,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
     def get_decoder_padding_mask(self, valid_indices, bsz):
         decoder_padding_mask = torch.zeros(bsz, self.num_embeddings)
         for c in range(bsz):
-            decoder_padding_mask[c,valid_indices[c]] = 1.0
+            try:
+                decoder_padding_mask[c,valid_indices[c]] = 1.0
+            except:
+                print(c)
+                #print(valid_indices[c])
         decoder_padding_mask = (decoder_padding_mask != 1) #Elements that need to be masked should be True
         return decoder_padding_mask
         
@@ -426,6 +431,8 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             prev_output_tokens, valid_indices, tgt_embedding, encoder_out, incremental_state
         )
         return self.output_layer(x), attn_scores, copy_attention_scores
+
+    
 
     def extract_features(
         self, prev_output_tokens, valid_indices, tgt_embedding, encoder_out, incremental_state=None
@@ -469,7 +476,12 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
             #print(self.num_embeddings - self.sql_dictionary_size)
 
             #print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
-            output_embedding = tgt_embedding(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+            try:
+                output_embedding = tgt_embedding(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+            except:
+                print(torch.arange(self.sql_dictionary_size, self.num_embeddings))
+                #print(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+                #print(x.size())
         else:   
             x = self.embed_tokens(prev_output_tokens)
 

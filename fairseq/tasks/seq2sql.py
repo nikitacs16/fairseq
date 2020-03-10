@@ -215,7 +215,9 @@ class Seq2SqlTask(FairseqTask):
             prepend_bos=self.args.add_bos_token
         )
 
-    def build_dataset_for_inference(self, src_tokens, src_lengths): #change this!
+    def build_dataset_for_inference(self, src_tokens, src_lengths, col_lengths): #change this!
+        
+
         return LanguagePairDataset(src_tokens, src_lengths, self.source_dictionary)
 
     def build_model(self, args):
