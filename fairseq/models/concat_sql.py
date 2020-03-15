@@ -89,56 +89,56 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 		'''
 		max_source_positions = getattr(args, 'max_source_positions', DEFAULT_MAX_SOURCE_POSITIONS)
 		max_target_positions = getattr(args, 'max_target_positions', DEFAULT_MAX_TARGET_POSITIONS)
-        	def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
-           		num_embeddings = len(dictionary)
-            		padding_idx = dictionary.pad()
-            		embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
-            
-            		embed_dict = utils.parse_embedding(embed_path)
-            		utils.print_embed_overlap(embed_dict, dictionary)
-            		return utils.load_embedding(embed_dict, dictionary, embed_tokens)
+		def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
+			num_embeddings = len(dictionary)
+			padding_idx = dictionary.pad()
+			embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
+			
+			embed_dict = utils.parse_embedding(embed_path)
+			utils.print_embed_overlap(embed_dict, dictionary)
+			return utils.load_embedding(embed_dict, dictionary, embed_tokens)
 
-        	if args.encoder_embed_path:
-          		 pretrained_encoder_embed = load_pretrained_embedding_from_file(
-                	args.encoder_embed_path, task.source_dictionary, args.encoder_embed_dim)
-        	else:
-            		num_embeddings = len(task.source_dictionary)
-            		pretrained_encoder_embed = Embedding(
-                	num_embeddings, args.encoder_embed_dim, task.source_dictionary.pad()
-            		)
+		if args.encoder_embed_path:
+			pretrained_encoder_embed = load_pretrained_embedding_from_file(
+				args.encoder_embed_path, task.source_dictionary, args.encoder_embed_dim)
+		else:
+			num_embeddings = len(task.source_dictionary)
+			pretrained_encoder_embed = Embedding(
+				num_embeddings, args.encoder_embed_dim, task.source_dictionary.pad()
+			)
 
-        	if args.share_all_embeddings:
-           	 # double check all parameters combinations are valid
-            		if task.source_dictionary != task.target_dictionary:
-                		raise ValueError('--share-all-embeddings requires a joint dictionary')
-            		if args.decoder_embed_path and (
-                    		args.decoder_embed_path != args.encoder_embed_path):
-                		raise ValueError(
-                    	'--share-all-embed not compatible with --decoder-embed-path'
-                		)
-            		if args.encoder_embed_dim != args.decoder_embed_dim:
-                		raise ValueError(
-                    		'--share-all-embeddings requires --encoder-embed-dim to '
-                    		'match --decoder-embed-dim'
-                		)
-            		pretrained_decoder_embed = pretrained_encoder_embed
-            		args.share_decoder_input_output_embed = True
-        	else:
-            	# separate decoder input embeddings
-            		pretrained_decoder_embed = None
-            		if args.decoder_embed_path:
-                		pretrained_decoder_embed = load_pretrained_embedding_from_file(
-                    		args.decoder_embed_path,
-                    		task.target_dictionary,
-                    		args.decoder_embed_dim
-                		)
-        # one last double check of parameter combinations
-        #if args.share_decoder_input_output_embed and (
-         #       args.decoder_embed_dim != args.decoder_out_embed_dim):
-          #  raise ValueError(
-           #     '--share-decoder-input-output-embeddings requires '
-            #    '--decoder-embed-dim to match --decoder-out-embed-dim'
-            #)
+		if args.share_all_embeddings:
+			# double check all parameters combinations are valid
+			if task.source_dictionary != task.target_dictionary:
+				raise ValueError('--share-all-embeddings requires a joint dictionary')
+			if args.decoder_embed_path and (
+					args.decoder_embed_path != args.encoder_embed_path):
+				raise ValueError(
+					'--share-all-embed not compatible with --decoder-embed-path'
+				)
+			if args.encoder_embed_dim != args.decoder_embed_dim:
+				raise ValueError(
+					'--share-all-embeddings requires --encoder-embed-dim to '
+					'match --decoder-embed-dim'
+				)
+			pretrained_decoder_embed = pretrained_encoder_embed
+			args.share_decoder_input_output_embed = True
+		else:
+			# separate decoder input embeddings
+			pretrained_decoder_embed = None
+			if args.decoder_embed_path:
+				pretrained_decoder_embed = load_pretrained_embedding_from_file(
+					args.decoder_embed_path,
+					task.target_dictionary,
+					args.decoder_embed_dim
+				)
+		# one last double check of parameter combinations
+		if args.share_decoder_input_output_embed and (
+				args.decoder_embed_dim != args.decoder_out_embed_dim):
+			raise ValueError(
+				'--share-decoder-input-output-embeddings requires '
+				'--decoder-embed-dim to match --decoder-out-embed-dim'
+			)
 
 
 		if args.encoder_freeze_embed:
