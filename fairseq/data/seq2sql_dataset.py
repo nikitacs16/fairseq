@@ -21,16 +21,18 @@ def load_random_embedding(fname):
 	for line in fname.readlines():
 		pieces = line.strip().split(" ")
 		embed_tokens.append([float(weight) for weight in pieces])    
-	return torch.stack(embed_tokens)        
+	return torch.Tensor(embed_tokens)        
 
 
-def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_path)
+def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_path):
 	num_embeddings = len(dictionary)
 	padding_idx = dictionary.pad()
+	embed_tokens = nn.Embedding(num_embeddings, embed_dim, padding_idx)
 	prev_embedded_tokens = load_random_embedding(prev_embedded_tokens_path)
+	embed_tokens.weight = nn.Parameter(prev_embedded_tokens)
 	embed_dict = utils.parse_embedding(embed_path)
 	utils.print_embed_overlap(embed_dict, dictionary)
-	return utils.load_embedding(embed_dict, dictionary, prev_embedded_tokens)
+	return utils.load_embedding(embed_dict, dictionary, embed_tokens)
 
 
 
@@ -148,6 +150,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
 		sql, sql_sizes, sql_dict,  
 		encoder_embed_path, encoder_embed_dim,
 		decoder_embed_path, decoder_embed_dim,
+		encoder_random_embedding_path,
+		decoder_random_embedding_path,
 		left_pad_source=False, left_pad_target=False,
 		max_source_positions=1500, max_target_positions=1024,
 		shuffle=True, input_feeding=True,
@@ -179,8 +183,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
 		self.append_bos = append_bos
 		self.mapping_dict = None
 		self.create_mapper(src_dict, sql_dict)
-		self.src_embedding = copy_prev_embedding(encoder_embed_path, src_dict, encoder_embed_dim, prev_path + 'src')
-		self.tgt_embedding = copy_prev_embedding(decoder_embed_path, sql_dict, decoder_embed_dim, prev_path + 'sql')
+		self.src_embedding = copy_prev_embedding(encoder_embed_path, src_dict, encoder_embed_dim, encoder_random_embedding_path)
+		self.tgt_embedding = copy_prev_embedding(decoder_embed_path, sql_dict, decoder_embed_dim, decoder_random_embedding_path)
 
 		#print(self.tgt_embedding)
 	def __getitem__(self, index):

@@ -8,7 +8,7 @@ import json
 import itertools
 import logging
 import os
-
+import torch.nn as nn
 import numpy as np
 
 from fairseq import metrics, options, utils
@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
         encoder_embed_path, encoder_embed_dim,
         decoder_embed_path, decoder_embed_dim,
+	encoder_random_embedding_path,
+	decoder_random_embedding_path,
         dataset_impl, upsample_primary, 
         left_pad_source,
         left_pad_target,
@@ -90,6 +92,8 @@ def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
         sql_dataset, sql_dataset.sizes, sql_dict,
         encoder_embed_path, encoder_embed_dim,
         decoder_embed_path, decoder_embed_dim,
+	encoder_random_embedding_path,
+	decoder_random_embedding_path,
         left_pad_source=left_pad_source,
         left_pad_target=left_pad_target,
         max_source_positions=max_source_positions,
@@ -139,12 +143,12 @@ class Seq2SqlTask(FairseqTask):
         parser.add_argument('--add-bos-token', action='store_true',
                             help='prepend beginning of sentence token (<s>)')
     
-    def __init__(self, args, src_dict, sql_dict):
+    def __init__(self, args, src_dict, sql_dict, src_path, sql_path):
         super().__init__(args)
         self.src_dict = src_dict
         self.sql_dict = sql_dict
-        self.src_random_embedding_path = None
-        self.sql_random_embedding_path = None
+        self.src_random_embedding_path = src_path
+        self.sql_random_embedding_path = sql_path
 
 
 
@@ -177,8 +181,8 @@ class Seq2SqlTask(FairseqTask):
         
         store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
         store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
-        self.src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
-        self.sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
+        src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
+        sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
 
         assert src_dict.pad() == sql_dict.pad()
         assert src_dict.eos() == sql_dict.eos()
@@ -186,7 +190,7 @@ class Seq2SqlTask(FairseqTask):
         logger.info('["src"] dictionary: {} types'.format(len(src_dict)))
         logger.info('["sql"] dictionary: {} types'.format(len(sql_dict)))
 
-        return cls(args, src_dict, sql_dict)
+        return cls(args, src_dict, sql_dict, src_random_embedding_path, sql_random_embedding_path)
 
  
 
