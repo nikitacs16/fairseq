@@ -34,12 +34,6 @@ EVAL_BLEU_ORDER = 4
 
 logger = logging.getLogger(__name__)
 
-def get_col_sizes(filename):
-    f = open(filename)
-    size_list = []
-    for i in f.readlines():
-        size_list.append(int(i.strip()))
-    return size_list
 
 def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
         encoder_embed_path, encoder_embed_dim,
@@ -149,6 +143,9 @@ class Seq2SqlTask(FairseqTask):
         super().__init__(args)
         self.src_dict = src_dict
         self.sql_dict = sql_dict
+        self.src_random_embedding_path = None
+        self.sql_random_embedding_path = None
+
 
 
 
@@ -169,7 +166,20 @@ class Seq2SqlTask(FairseqTask):
         src_dict = cls.load_dictionary(os.path.join(paths[0], 'train.dict.src.txt'))
         sql_dict = cls.load_dictionary(os.path.join(paths[0], 'train.dict.sql.txt'))
 
+        def store_random_embeddings(num_embeddings, embedding_dim, padding_idx, fname):
+            m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+            fname = open(os.path.join(paths[0],'rnd_embed.'+fname),'w')
+            for i in m.weight.tolist():
+                for j in i:
+                    fname.write(str(j) + ' ')
+                fname.write('\n')
+            fname.close()
         
+        store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
+        store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
+        self.src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
+        self.sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
+
         assert src_dict.pad() == sql_dict.pad()
         assert src_dict.eos() == sql_dict.eos()
         assert src_dict.unk() == sql_dict.unk()
@@ -205,6 +215,8 @@ class Seq2SqlTask(FairseqTask):
             encoder_embed_dim=self.args.encoder_embed_dim,
             decoder_embed_path=self.args.decoder_embed_path, 
             decoder_embed_dim=self.args.decoder_embed_dim,
+            encoder_random_embedding_path=self.src_random_embedding_path,
+            decoder_random_embedding_path=self.sql_random_embedding_path,
             dataset_impl=self.args.dataset_impl,
             upsample_primary=self.args.upsample_primary,
             left_pad_source=self.args.left_pad_source,

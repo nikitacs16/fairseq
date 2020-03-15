@@ -7,8 +7,8 @@ import shutil
 import sqlparse
 from postprocess_eval import get_candidate_tables
 import copy
-from collections import defaultdict
-
+from collections import defaultdict, OrderedDict
+import operator
 EOT = '<EOT>'
 
 
@@ -35,6 +35,7 @@ def get_updated_id(curr_table_vocab,train_table_vocab):
   common_keys = set(train_table_vocab).intersection(set(curr_table_vocab))
   uncommon_keys = list(set(train_table_vocab).intersection(set(curr_table_vocab)))
   c = 0
+  
   for k in curr_table_vocab:
     if k not in common_keys:
       val = train_table_vocab[uncommon_keys[c]]
@@ -46,17 +47,24 @@ def get_updated_id(curr_table_vocab,train_table_vocab):
 def write_vocab_file(input_vocab, output_vocab, curr_table_vocab,split,output_dir,train_table_vocab=None):
   input_vocab_file = open(os.path.join(output_dir,split+'.dict.src.txt'),'w')
   output_vocab_file = open(os.path.join(output_dir,split+'.dict.sql.txt'),'w')
+
   for i in output_vocab:
     input_vocab_file.write(str(i)+' ' + str(15000) + '\n')
     output_vocab_file.write(str(i)+' ' + str(15000) + '\n')
 
   for i in input_vocab:
+    if i in curr_table_vocab:
+      continue
+    if train_table_vocab is not None:
+      if i in train_table_vocab:
+        continue
     input_vocab_file.write(str(i)+' ' + str(input_vocab[i]) + '\n')
 
   if train_table_vocab is not None:
     copied_train_table_vocab = copy.deepcopy(train_table_vocab)
     curr_table_vocab = get_updated_id(curr_table_vocab, copied_train_table_vocab)
 
+  curr_table_vocab=OrderedDict(sorted(curr_table_vocab.items(),key=operator.itemgetter(1),reverse=True))
   for i in curr_table_vocab:
     input_vocab_file.write(str(i)+' ' + str(curr_table_vocab[i]) + '\n')
     output_vocab_file.write(str(i)+' ' + str(curr_table_vocab[i]) + '\n')
@@ -80,7 +88,7 @@ def write_interaction(interaction_list,split,output_dir,flat_db,output_vocab):
 
   infile = open(input_split,'w')
   outfile = open(output_split,'w')
-
+  c=0
   new_objs = []
   seen_ids = []
   for i, obj in enumerate(interaction_list):
@@ -118,9 +126,10 @@ def write_interaction(interaction_list,split,output_dir,flat_db,output_vocab):
       pre_append = concat_s
       infile.write(concat_s + '\n')
       outfile.write(sql_raw + '\n')
+
       concat_s = concat_s.strip() + ' ' + sql_raw
     for s in pre_append.split():
-      if s not in table_vocab or s not in output_vocab:
+      if s not in table_vocab and s not in output_vocab:
         input_vocab[s]+=1
 
     obj["interaction"] = new_interaction
@@ -611,6 +620,13 @@ def preprocess(dataset, remove_from=False):
   print('num_database', num_database, len(train_database), len(dev_database))
   print('total number of schema_tokens / databases:', len(schema_tokens))
 
+  split_at = 0.9 * len(train_database)
+  
+  test_database = dev_database
+  dev_database = train_database[int(split_at):]
+  train_database = train_database[:int(split_at)]
+
+  
   output_database_schema_filename = os.path.join(output_dir, 'tables.json')
   with open(output_database_schema_filename, 'w') as outfile:
     json.dump([v for k,v in database_schemas.items()], outfile, indent=4)
@@ -625,17 +641,24 @@ def preprocess(dataset, remove_from=False):
   print('interaction_list length', len(interaction_list))
 
   train_interaction = []
+
   for database_id in interaction_list:
-    if database_id not in dev_database:
+    if database_id in train_database:
       train_interaction += interaction_list[database_id]
 
   dev_interaction = []
-  for database_id in dev_database:
-    dev_interaction += interaction_list[database_id]
+  for database_id in interaction_list:
+    if database_id in dev_database:
+      dev_interaction += interaction_list[database_id]
 
-  test_interaction = copy.deepcopy(dev_interaction)
+  test_interaction = []
+  for database_id in interaction_list:
+    if database_id in test_database:
+      test_interaction += interaction_list[database_id]
+
   print('train interaction: ', len(train_interaction))
   print('dev interaction: ', len(dev_interaction))
+  print('test interaction: ', len(test_interaction))
 
   train_table_vocab, input_vocab = write_interaction(train_interaction, 'train', output_dir, flat_db, output_vocab)
   write_vocab_file(input_vocab, output_vocab, train_table_vocab,'train',output_dir)

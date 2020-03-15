@@ -90,55 +90,6 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
         max_source_positions = getattr(args, 'max_source_positions', DEFAULT_MAX_SOURCE_POSITIONS)
         max_target_positions = getattr(args, 'max_target_positions', DEFAULT_MAX_TARGET_POSITIONS)
 
-        def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim): #Add ELMo, BERT 
-            num_embeddings = len(dictionary)
-            padding_idx = dictionary.pad()
-            embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
-            embed_dict = utils.parse_embedding(embed_path)
-            utils.print_embed_overlap(embed_dict, dictionary)
-            return utils.load_embedding(embed_dict, dictionary, embed_tokens)
-
-        if args.encoder_embed_path:
-            pretrained_encoder_embed = load_pretrained_embedding_from_file(
-                args.encoder_embed_path, task.source_dictionary, args.encoder_embed_dim)
-        else:
-            num_embeddings = len(task.source_dictionary)
-            pretrained_encoder_embed = Embedding(
-                num_embeddings, args.encoder_embed_dim, task.source_dictionary.pad()
-            )
-
-        if args.share_all_embeddings:
-            # double check all parameters combinations are valid
-            if task.source_dictionary != task.target_dictionary:
-                raise ValueError('--share-all-embeddings requires a joint dictionary')
-            if args.decoder_embed_path and (
-                    args.decoder_embed_path != args.encoder_embed_path):
-                raise ValueError(
-                    '--share-all-embed not compatible with --decoder-embed-path'
-                )
-            if args.encoder_embed_dim != args.decoder_embed_dim:
-                raise ValueError(
-                    '--share-all-embeddings requires --encoder-embed-dim to '
-                    'match --decoder-embed-dim'
-                )
-            pretrained_decoder_embed = pretrained_encoder_embed
-            args.share_decoder_input_output_embed = True
-        else:
-            # separate decoder input embeddings
-            pretrained_decoder_embed = None
-            if args.decoder_embed_path:
-                pretrained_decoder_embed = load_pretrained_embedding_from_file(
-                    args.decoder_embed_path,
-                    task.target_dictionary,
-                    args.decoder_embed_dim
-                )
-        # one last double check of parameter combinations
-        if args.share_decoder_input_output_embed and (
-                args.decoder_embed_dim != args.decoder_out_embed_dim):
-            raise ValueError(
-                '--share-decoder-input-output-embeddings requires '
-                '--decoder-embed-dim to match --decoder-out-embed-dim'
-            )
 
         if args.encoder_freeze_embed:
             pretrained_encoder_embed.weight.requires_grad = False
@@ -477,7 +428,10 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
             #print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
             try:
-                output_embedding = tgt_embedding(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+                output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+                if bsz==1:
+                    output_embedding = torch.unsqueeze(output_embedding,1)
+            
             except:
                 print(torch.arange(self.sql_dictionary_size, self.num_embeddings))
                 #print(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
@@ -554,15 +508,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
                 out_copy, attn_copy_scores[:, j, :]= self.copy_attention(hidden, encoder_outs, encoder_copy_padding_mask.cuda()) #check dimensions for concat!
                 out_cat = torch.cat((out_plain, out_copy), 1) #concat!
                 temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
-                m_sql = self.linear_sql(temp_o_k) #split for sql keywords
-                m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words
-                #m_column = m_column * decoder_padding_mask
-                out = torch.cat((m_sql, m_column), 1)
+                #m_sql = self.linear_sql(temp_o_k) #split for sql keywords
+                out = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #sim with all the words
+                #m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words         
+                #out = torch.cat((m_sql, m_column), 1)
                 out = out.float().masked_fill_(decoder_padding_mask.cuda(),float('1e-32')).type_as(out)
-            #if self.copy_attention_pointer:
-             #   p_gen = self.(torch.cat(out_plain, ))
-
-             #   pass
             
             out = F.dropout(out, p=self.dropout_out, training=self.training)
 

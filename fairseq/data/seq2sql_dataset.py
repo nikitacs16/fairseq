@@ -15,85 +15,37 @@ from . import data_utils, FairseqDataset, dictionary
 from collections import Counter
 from fairseq import metrics, options, utils
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    nn.init.uniform_(m.weight, -0.1, 0.1)
-    nn.init.constant_(m.weight[padding_idx], 0)
-    #print(size(m))
-    return m
+def load_random_embedding(fname):
+	fname = open(fname,'r')
+	embed_tokens = []
+	for line in fname.readlines():
+		pieces = line.strip().split(" ")
+        embed_tokens.append([float(weight) for weight in pieces])    
+    return torch.stack(embed_tokens)        
 
 
-def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):  
-    num_embeddings = len(dictionary)
+def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_path)
+	num_embeddings = len(dictionary)
     padding_idx = dictionary.pad()
-    embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
+    prev_embedded_tokens = load_random_embedding(prev_embedded_tokens_path)
     embed_dict = utils.parse_embedding(embed_path)
     utils.print_embed_overlap(embed_dict, dictionary)
-    return utils.load_embedding(embed_dict, dictionary, embed_tokens)
+    return utils.load_embedding(embed_dict, dictionary, prev_embedded_tokens)
 
 
 
 logger = logging.getLogger(__name__)
-def convert_to_dict_object(dict_name):
-    f = open('temp_dict.txt','w')
-    for k,v in dict_name.items():
-        f.write(k + ' ' + str(v) + '\n')
-    f.close()
 
-    return dictionary.Dictionary.load('temp_dict.txt')
-
-
-class SrcObject(object):
-    """docstring for SrcObject"""
-    def __init__(self, id_, sequence, basic_dict, col_length, col_dict=None):
-        super(SrcObject, self).__init__()
-        self.id = id_
-        #print(basic_dict.indices)
-        self.sequence = [basic_dict.symbols[int(s)] for s in sequence] #optimize this!
-        
-        self.basic_dict = copy.deepcopy(basic_dict)
-        self.col_length = col_length
-        self.col_dict = None
-        self.index_sequence = None
-        self.set_col_dict()
-        self.convert_sequence_to_ids()
-
-    def set_col_dict(self):
-        col_set = Counter(self.sequence[:self.col_length])
-        col_set = convert_to_dict_object(col_set)
-        self.basic_dict.update(col_set)
-        self.col_dict = col_set
-
-    def convert_sequence_to_ids(self):
-        self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
-         
-
-class SqlObject(object):
-    """docstring for SqlObject"""
-    def __init__(self, id_, sequence, basic_dict, col_dict):
-        super(SqlObject, self).__init__()
-        self.id = id_
-        self.sequence = sequence
-        self.sequence = [basic_dict.symbols[int(s)] for s in sequence]
-        self.basic_dict = basic_dict
-        #self.col_dict = convert_to_dict_object(col_dict)
-        self.basic_dict.update(col_dict)
-        self.convert_sequence_to_ids()
-       
-
-    def convert_sequence_to_ids(self):
-        self.index_sequence = torch.LongTensor([self.basic_dict.index(s) for s in self.sequence])
-
-
-def get_valid_indices(sequence,mapping_dict,len_sql_dict):      
+def get_valid_indices(sequence,mapping_dict,len_sql_dict,unk_idx):      
     valid_indices = list(np.arange(len_sql_dict))
+    valid_indices.remove(unk_idx)
     for i in set(sequence):
         valid_indices.append(mapping_dict[i])
     return sorted(valid_indices)
 
 def collate(
-    samples, src_embedding, tgt_embedding, pad_idx, eos_idx,  left_pad_source=False, left_pad_target=False,
-    input_feeding=True, eot_symbol = 4, mapping_dict=None, len_sql_dict=53
+    samples, src_embedding, tgt_embedding, pad_idx, eos_idx, unk_idx, left_pad_source=False, left_pad_target=False,
+    input_feeding=True, eot_symbol=4, mapping_dict=None, len_sql_dict=53
 ):
     if len(samples) == 0:
         return {}
@@ -114,7 +66,7 @@ def collate(
     flatten_source = [s['source'].flatten().tolist() for s in samples]
     col_lengths_unordered = [s.index(eot_symbol) for s in flatten_source]
     col_lengths = torch.LongTensor(col_lengths_unordered).index_select(0,sort_order)
-    valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict) for s in sort_order.flatten().tolist()]
+    valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict, unk_idx) for s in sort_order.flatten().tolist()]
 
     prev_output_tokens = None
     target = None
@@ -227,11 +179,8 @@ class Seq2SqlPairDataSet(FairseqDataset):
         self.append_bos = append_bos
         self.mapping_dict = None
         self.create_mapper(src_dict, sql_dict)
-        self.src_embedding = load_pretrained_embedding_from_file(
-                        encoder_embed_path, src_dict, encoder_embed_dim)
-
-        self.tgt_embedding = load_pretrained_embedding_from_file(
-                        decoder_embed_path, sql_dict, decoder_embed_dim)
+	    self.src_embedding = copy_prev_embedding(encoder_embed_path, src_dict, encoder_embed_dim, prev_path + 'src')
+   	    self.tgt_embedding = copy_prev_embedding(decoder_embed_path, sql_dict, decoder_embed_dim, prev_path + 'sql')
 
         #print(self.tgt_embedding)
     def __getitem__(self, index):
@@ -304,6 +253,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
         """
         return collate(
             samples, self.src_embedding, self.tgt_embedding, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), 
+            unk_idx=self.src_dict.unk(),
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding, eot_symbol=self.eot_symbol, mapping_dict=self.mapping_dict, 
             len_sql_dict=self.eov_symbol + 1
