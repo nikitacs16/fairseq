@@ -45,7 +45,10 @@ def get_valid_indices(sequence,mapping_dict,len_sql_dict,unk_idx, src_dict, sql_
 		try:
 			valid_indices.append(mapping_dict[i])
 		except:
-			print(sql_dict.symbols[i])
+			print(len(sequence))
+			s = " ".join(src_dict.symbols[k] for k in sequence)
+			print(s)
+			print(src_dict.symbols[i])
 			
 	
 	return sorted(valid_indices)
@@ -73,6 +76,7 @@ def collate(
 	flatten_source = [s['source'].flatten().tolist() for s in samples]
 	col_lengths_unordered = [s.index(eot_symbol) for s in flatten_source]
 	col_lengths = torch.LongTensor(col_lengths_unordered).index_select(0,sort_order)
+	
 	valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict, unk_idx, src_dict, sql_dict) for s in sort_order.flatten().tolist()]
 
 	prev_output_tokens = None
@@ -275,14 +279,7 @@ class Seq2SqlPairDataSet(FairseqDataset):
 		src_tokens = src_dict.symbols
 		sql_tokens = sql_dict.symbols
 		common_symbols = set(src_tokens).intersection(sql_tokens)
-		print(len(src_dict))
-		print(len(common_symbols))
-		print(common_symbols)
-		
 		for c in common_symbols:
-			if c < 80:
-				print(src_dict.symbols[c])
-				print(sql_dict.symbols[c])
 			new_dict[src_dict.index(c)] = sql_dict.index(c)
 		self.mapping_dict = new_dict
 
