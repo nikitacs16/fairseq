@@ -42,15 +42,7 @@ def get_valid_indices(sequence,mapping_dict,len_sql_dict,unk_idx, src_dict, sql_
 	valid_indices = list(np.arange(len_sql_dict))
 	valid_indices.remove(unk_idx)
 	for i in set(sequence):
-		try:
-			valid_indices.append(mapping_dict[i])
-		except:
-			print(len(sequence))
-			s = " ".join(src_dict.symbols[k] for k in sequence)
-			print(s)
-			print(src_dict.symbols[i])
-			
-	
+		valid_indices.append(mapping_dict[i])
 	return sorted(valid_indices)
 
 def collate(

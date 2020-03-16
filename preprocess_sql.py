@@ -7,7 +7,7 @@ import shutil
 import sqlparse
 from postprocess_eval import get_candidate_tables
 import copy
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, OrderedDict, Counter
 import operator
 EOT = '<EOT>'
 
@@ -31,9 +31,10 @@ def convert_to_flat_db(db): #has the schema as string
     new_db[k] = ' '.join(s for s in tokenize(db[k]))
   return new_db
 
+
 def get_updated_id(curr_table_vocab,train_table_vocab):
   common_keys = set(train_table_vocab).intersection(set(curr_table_vocab))
-  uncommon_keys = list(set(train_table_vocab).intersection(set(curr_table_vocab)))
+  uncommon_keys = list(set(train_table_vocab).difference(set(curr_table_vocab)))
   c = 0
   
   for k in curr_table_vocab:
@@ -44,7 +45,15 @@ def get_updated_id(curr_table_vocab,train_table_vocab):
       train_table_vocab[k]= val
   return train_table_vocab
 
-def write_vocab_file(input_vocab, output_vocab, curr_table_vocab,split,output_dir,train_table_vocab=None):
+def get_new_vocab_values(curr_table_vocab, curr_input_vocab, train_table_vocab, train_input_vocab, train_combined_vocab):
+  curr_table_vocab = get_updated_id(curr_table_vocab, train_table_vocab)
+  curr_input_vocab = get_updated_id(curr_input_vocab, train_input_vocab)
+  curr_combined_vocab = dict(Counter(curr_input_vocab) + Counter(curr_table_vocab))
+  curr_combined_vocab = get_updated_id(curr_combined_vocab, train_combined_vocab)
+  return curr_table_vocab, curr_combined_vocab
+
+def write_vocab_file(input_vocab, output_vocab, curr_table_vocab,split,output_dir):
+  #input vocab is combined with general vocab and table vocab
   input_vocab_file = open(os.path.join(output_dir,split+'.dict.src.txt'),'w')
   output_vocab_file = open(os.path.join(output_dir,split+'.dict.sql.txt'),'w')
 
@@ -52,21 +61,10 @@ def write_vocab_file(input_vocab, output_vocab, curr_table_vocab,split,output_di
     input_vocab_file.write(str(i)+' ' + str(15000) + '\n')
     output_vocab_file.write(str(i)+' ' + str(15000) + '\n')
 
-  for i in input_vocab:
-    if i in curr_table_vocab:
-      continue
-    if train_table_vocab is not None:
-      if i in train_table_vocab:
-        continue
+  for i in input_vocab: 
     input_vocab_file.write(str(i)+' ' + str(input_vocab[i]) + '\n')
 
-  if train_table_vocab is not None:
-    copied_train_table_vocab = copy.deepcopy(train_table_vocab)
-    curr_table_vocab = get_updated_id(curr_table_vocab, copied_train_table_vocab)
-
-  curr_table_vocab=OrderedDict(sorted(curr_table_vocab.items(),key=operator.itemgetter(1),reverse=True))
   for i in curr_table_vocab:
-    input_vocab_file.write(str(i)+' ' + str(curr_table_vocab[i]) + '\n')
     output_vocab_file.write(str(i)+' ' + str(curr_table_vocab[i]) + '\n')
 
   input_vocab_file.close()
@@ -138,8 +136,8 @@ def write_interaction(interaction_list,split,output_dir,flat_db,output_vocab):
   with open(pkl_split,'wb') as outfile:
     pickle.dump(new_objs, outfile)
 
+  #return table_vocab, input_vocab
   return table_vocab, input_vocab
-
 
 def read_database_schema(database_schema_filename, schema_tokens, column_names, database_schemas_dict):
   with open(database_schema_filename) as f:
@@ -660,12 +658,22 @@ def preprocess(dataset, remove_from=False):
   print('dev interaction: ', len(dev_interaction))
   print('test interaction: ', len(test_interaction))
 
-  train_table_vocab, input_vocab = write_interaction(train_interaction, 'train', output_dir, flat_db, output_vocab)
-  write_vocab_file(input_vocab, output_vocab, train_table_vocab,'train',output_dir)
-  dev_table_vocab, _ = write_interaction(dev_interaction, 'valid', output_dir, flat_db, output_vocab)
-  write_vocab_file(input_vocab, output_vocab, dev_table_vocab,'valid',output_dir,train_table_vocab)
-  test_table_vocab, _ = write_interaction(test_interaction, 'test', output_dir, flat_db, output_vocab)
-  write_vocab_file(input_vocab, output_vocab, test_table_vocab,'test',output_dir,train_table_vocab)
+  train_table_vocab, train_input_vocab = write_interaction(train_interaction, 'train', output_dir, flat_db, output_vocab)
+  combined_vocab = dict(Counter(train_table_vocab) + Counter(train_input_vocab))
+  write_vocab_file(combined_vocab, output_vocab, train_table_vocab,'train',output_dir)
+  dev_table_vocab, dev_input_vocab = write_interaction(dev_interaction, 'valid', output_dir, flat_db, output_vocab)
+  dev_table_vocab, dev_combined_vocab = get_new_vocab_values(dev_table_vocab, dev_input_vocab, copy.deepcopy(train_table_vocab), 
+                                                              copy.deepcopy(train_input_vocab), copy.deepcopy(combined_vocab))
+  assert dev_table_vocab!=train_table_vocab
+
+  write_vocab_file(dev_combined_vocab, output_vocab, dev_table_vocab,'valid',output_dir)
+  test_table_vocab,  test_input_vocab = write_interaction(test_interaction, 'test', output_dir, flat_db, output_vocab)
+  test_table_vocab, test_combined_vocab = get_new_vocab_values(test_table_vocab, test_input_vocab, copy.deepcopy(train_table_vocab), 
+                                                              copy.deepcopy(train_input_vocab), copy.deepcopy(combined_vocab))
+
+
+  assert test_table_vocab!=train_table_vocab
+  write_vocab_file(test_combined_vocab, output_vocab, test_table_vocab,'test',output_dir)
 
 
   return
