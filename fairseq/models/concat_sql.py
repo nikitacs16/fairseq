@@ -478,7 +478,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
 			#print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
 			try:
-				output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
+				output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings).to(device))
 				if bsz==1:
 					output_embedding = torch.unsqueeze(output_embedding,1)
 			

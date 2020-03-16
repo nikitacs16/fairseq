@@ -38,15 +38,20 @@ def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_
 
 logger = logging.getLogger(__name__)
 
-def get_valid_indices(sequence,mapping_dict,len_sql_dict,unk_idx):      
+def get_valid_indices(sequence,mapping_dict,len_sql_dict,unk_idx, src_dict, sql_dict):      
 	valid_indices = list(np.arange(len_sql_dict))
 	valid_indices.remove(unk_idx)
 	for i in set(sequence):
-		valid_indices.append(mapping_dict[i])
+		try:
+			valid_indices.append(mapping_dict[i])
+		except:
+			print(sql_dict.symbols[i])
+			
+	
 	return sorted(valid_indices)
 
 def collate(
-	samples, src_embedding, tgt_embedding, pad_idx, eos_idx, unk_idx, left_pad_source=False, left_pad_target=False,
+	samples, src_embedding, tgt_embedding, src_dict, sql_dict, pad_idx, eos_idx, unk_idx, left_pad_source=False, left_pad_target=False,
 	input_feeding=True, eot_symbol=4, mapping_dict=None, len_sql_dict=53
 ):
 	if len(samples) == 0:
@@ -68,7 +73,7 @@ def collate(
 	flatten_source = [s['source'].flatten().tolist() for s in samples]
 	col_lengths_unordered = [s.index(eot_symbol) for s in flatten_source]
 	col_lengths = torch.LongTensor(col_lengths_unordered).index_select(0,sort_order)
-	valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict, unk_idx) for s in sort_order.flatten().tolist()]
+	valid_indices = [get_valid_indices(flatten_source[s][:col_lengths_unordered[s]],mapping_dict,len_sql_dict, unk_idx, src_dict, sql_dict) for s in sort_order.flatten().tolist()]
 
 	prev_output_tokens = None
 	target = None
@@ -256,8 +261,9 @@ class Seq2SqlPairDataSet(FairseqDataset):
 				  on the left if *left_pad_target* is ``True``.
 		"""
 		return collate(
-			samples, self.src_embedding, self.tgt_embedding, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), 
-			unk_idx=self.src_dict.unk(),
+			samples, self.src_embedding, self.tgt_embedding, self.src_dict, self.sql_dict,  
+			pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(), 
+			unk_idx=self.src_dict.unk(),  
 			left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
 			input_feeding=self.input_feeding, eot_symbol=self.eot_symbol, mapping_dict=self.mapping_dict, 
 			len_sql_dict=self.eov_symbol + 1
@@ -271,7 +277,12 @@ class Seq2SqlPairDataSet(FairseqDataset):
 		common_symbols = set(src_tokens).intersection(sql_tokens)
 		print(len(src_dict))
 		print(len(common_symbols))
+		print(common_symbols)
+		
 		for c in common_symbols:
+			if c < 80:
+				print(src_dict.symbols[c])
+				print(sql_dict.symbols[c])
 			new_dict[src_dict.index(c)] = sql_dict.index(c)
 		self.mapping_dict = new_dict
 
