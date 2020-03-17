@@ -458,7 +458,9 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 		if incremental_state is not None:
 			prev_output_tokens = prev_output_tokens[:, -1:]
 		bsz, seqlen = prev_output_tokens.size()
-		
+		#print(bsz)
+		#print(seqlen)
+		#print(len(valid_indices))
 		decoder_padding_mask = self.get_decoder_padding_mask(valid_indices,bsz)
 		
 
@@ -473,17 +475,21 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 		if tgt_embedding is not None:
 			device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 			tgt_embedding.to(device)
-			x = tgt_embedding(prev_output_tokens)
+			#print(prev_output_tokens)
+			x = tgt_embedding(prev_output_tokens.cuda())
 			#print(self.num_embeddings - self.sql_dictionary_size)
 
 			#print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
+			#print(self.num_embeddings)
 			try:
-				output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings).to(device))
+				output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings).cuda())
 				if bsz==1:
 					output_embedding = torch.unsqueeze(output_embedding,1)
 			
 			except:
-				print(torch.arange(self.sql_dictionary_size, self.num_embeddings))
+				pass
+				#print('Error')
+				#print(torch.arange(self.sql_dictionary_size, self.num_embeddings))
 				#print(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
 				#print(x.size())
 		else:   
@@ -562,7 +568,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 				out = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #sim with all the words
 				#m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words         
 				#out = torch.cat((m_sql, m_column), 1)
-				out = out.float().masked_fill_(decoder_padding_mask.cuda(),float('1e-32')).type_as(out)
+				out = out.float().masked_fill_(decoder_padding_mask.cuda(),float('-1e-32')).type_as(out)
 			
 			out = F.dropout(out, p=self.dropout_out, training=self.training)
 
