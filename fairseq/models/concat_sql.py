@@ -431,7 +431,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 		x, attn_scores, copy_attention_scores = self.extract_features(
 			prev_output_tokens, valid_indices, tgt_embedding, encoder_out, incremental_state
 		)
-		return self.output_layer(x), attn_scores, copy_attention_scores
+		return self.output_layer(x, tgt_embedding), attn_scores, copy_attention_scores
 
 	
 
@@ -458,10 +458,6 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 		if incremental_state is not None:
 			prev_output_tokens = prev_output_tokens[:, -1:]
 		bsz, seqlen = prev_output_tokens.size()
-		#print(bsz)
-		#print(seqlen)
-		#print(len(valid_indices))
-		decoder_padding_mask = self.get_decoder_padding_mask(valid_indices,bsz)
 		
 
 		# get outputs from encoder
@@ -477,21 +473,6 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 			tgt_embedding.to(device)
 			#print(prev_output_tokens)
 			x = tgt_embedding(prev_output_tokens.cuda())
-			#print(self.num_embeddings - self.sql_dictionary_size)
-
-			#print(torch.arange(self.num_embeddings - self.sql_dictionary_size, self.num_embeddings))
-			#print(self.num_embeddings)
-			try:
-				output_embedding = tgt_embedding(torch.arange(self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings).cuda())
-				if bsz==1:
-					output_embedding = torch.unsqueeze(output_embedding,1)
-			
-			except:
-				pass
-				#print('Error')
-				#print(torch.arange(self.sql_dictionary_size, self.num_embeddings))
-				#print(torch.arange(self.sql_dictionary_size, self.num_embeddings).repeat(bsz).view(bsz,self.num_embeddings - self.sql_dictionary_size).to(device))
-				#print(x.size())
 		else:   
 			x = self.embed_tokens(prev_output_tokens)
 
@@ -564,11 +545,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 				out_copy, attn_copy_scores[:, j, :]= self.copy_attention(hidden, encoder_outs, encoder_copy_padding_mask.cuda()) #check dimensions for concat!
 				out_cat = torch.cat((out_plain, out_copy), 1) #concat!
 				temp_o_k = F.tanh(self.o_k(torch.cat((out_cat, hidden), 1))) #Ref Eqn 4 from EditSQL paper
-				#m_sql = self.linear_sql(temp_o_k) #split for sql keywords
-				out = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #sim with all the words
-				#m_column = torch.bmm(output_embedding,temp_o_k.unsqueeze(2)).squeeze() #split for table words         
-				#out = torch.cat((m_sql, m_column), 1)
-				out = out.float().masked_fill_(decoder_padding_mask.cuda(),float('-1e-32')).type_as(out)
+				out = temp_o_k
 			
 			out = F.dropout(out, p=self.dropout_out, training=self.training)
 
@@ -609,10 +586,12 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 		
 		return x, attn_scores, attn_copy_scores
 
-	def output_layer(self, x):
+	def output_layer(self, x, tgt_embedding):
 		"""Project features to the vocabulary size."""
 		
 		if self.copy_attention_simple:
+			if self.share_input_output_embed:
+				x = F.linear(x, tgt_embedding.weight)
 			return x
 
 		if self.adaptive_softmax is None:
