@@ -178,11 +178,11 @@ class Seq2SqlTask(FairseqTask):
                     fname.write(str(j) + ' ')
                 fname.write('\n')
             fname.close()
-        
-        store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
-        store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
-        src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
-        sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
+	if not os.path.exists(os.path.join(paths[0],'rnd_embed.src'):
+	    store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
+            store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
+            src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
+            sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
 
         assert src_dict.pad() == sql_dict.pad()
         assert src_dict.eos() == sql_dict.eos()

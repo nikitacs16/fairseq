@@ -403,8 +403,8 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
 			self.copy_attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
 			self.o_k = Linear(3*hidden_size,hidden_size)
-			self.linear_sql = Linear(hidden_size, sql_dictionary_size)
-			self.bilinear_col = torch.nn.Bilinear(hidden_size, embed_dim, len(dictionary) - sql_dictionary_size) 
+#			self.linear_sql = Linear(hidden_size, sql_dictionary_size)
+#			self.bilinear_col = torch.nn.Bilinear(hidden_size, embed_dim, len(dictionary) - sql_dictionary_size) 
 
 		if hidden_size != out_embed_dim:
 			self.additional_fc = Linear(hidden_size, out_embed_dim)
@@ -562,11 +562,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 			(prev_hiddens, prev_cells, input_feed),
 		)
 
-		if self.copy_attention_simple:
-			x = torch.cat(outs, dim=0).view(seqlen, bsz, self.num_embeddings)
-		else:
+		#if self.copy_attention_simple:
+		#	x = torch.cat(outs, dim=0).view(seqlen, bsz, self.num_embeddings)
+		#else:
 			 # collect outputs across time steps
-			x = torch.cat(outs, dim=0).view(seqlen, bsz, self.hidden_size)
+		x = torch.cat(outs, dim=0).view(seqlen, bsz, self.hidden_size)
 
 		# T x B x C -> B x T x C
 		x = x.transpose(1, 0)
@@ -588,10 +588,11 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 
 	def output_layer(self, x, tgt_embedding):
 		"""Project features to the vocabulary size."""
-		
+		return F.linear(x, tgt_embedding.weight)
+		'''
 		if self.copy_attention_simple:
-			if self.share_input_output_embed:
-				x = F.linear(x, tgt_embedding.weight)
+			#if self.share_input_output_embed:
+			x = F.linear(x, tgt_embedding.weight)
 			return x
 
 		if self.adaptive_softmax is None:
@@ -601,6 +602,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder): #dictionary has to be target di
 				x = self.fc_out(x) #generation probability
 		
 		return x
+		'''
 
 	def reorder_incremental_state(self, incremental_state, new_order):
 		super().reorder_incremental_state(incremental_state, new_order)
