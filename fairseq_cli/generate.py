@@ -56,7 +56,7 @@ def _main(args, output_file):
     data = task.load_dataset(args.gen_subset)
 
     # Set dictionaries
-    if args.task == 'Seq2Sql'
+    if args.task == 'Seq2Sql':
         src_dict = task.datasets['test'].src_dict
         tgt_dict = task.datasets['test'].sql_dict
         logger.info(len(src_dict))
