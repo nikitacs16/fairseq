@@ -391,7 +391,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		x, attn_scores = self.extract_features(
 			prev_output_tokens, valid_indices, tgt_embedding, encoder_out, incremental_state
 		)
-		return self.output_layer(x,tgt_embedding), attn_scores
+		return self.output_layer(x,tgt_embedding,valid_indices), attn_scores
 
 	def extract_features(
 		self, prev_output_tokens, valid_indices, tgt_embedding,  encoder_out, incremental_state=None
