@@ -107,7 +107,7 @@ class SequenceGenerator(object):
         # separately, but SequenceGenerator directly calls model.encoder
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
-            if k != 'prev_output_tokens' and k!='tgt_embedding' and k!='valid_indices'
+            if k != 'prev_output_tokens' and k!='tgt_embedding' and k!='valid_indices' and k!='col_lengths'
         }
 
         if 'tgt_embedding' in sample['net_input']:

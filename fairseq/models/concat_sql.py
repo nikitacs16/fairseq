@@ -331,7 +331,7 @@ class AttentionLayer(nn.Module):
         return x, attn_scores
 
 
-class LSTMSQLDecoder(FairseqIncrementalDecoder):
+class LSTMDecoder(FairseqIncrementalDecoder):
     """LSTM decoder."""
     def __init__(
         self, dictionary, embed_dim=512, hidden_size=512, out_embed_dim=512,
@@ -394,7 +394,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder):
         return self.output_layer(x,tgt_embedding), attn_scores
 
     def extract_features(
-        self, prev_output_tokens, encoder_out, incremental_state=None
+        self, prev_output_tokens, valid_indices, tgt_embedding,  encoder_out, incremental_state=None
     ):
         """
         Similar to *forward* but only return features.
@@ -418,7 +418,7 @@ class LSTMSQLDecoder(FairseqIncrementalDecoder):
             srclen = None
 
         # embed tokens
-                if tgt_embedding is not None:
+        if tgt_embedding is not None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             tgt_embedding.to(device)
             #print(prev_output_tokens)
