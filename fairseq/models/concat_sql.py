@@ -347,9 +347,9 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		self.share_input_output_embed = share_input_output_embed
 		self.need_attn = True
 		self.max_target_positions = max_target_positions
-
+		
 		self.adaptive_softmax = None
-		num_embeddings = len(dictionary)
+		self.num_embeddings = len(dictionary)
 		padding_idx = dictionary.pad()
 		if pretrained_embed is None:
 			self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
@@ -382,10 +382,10 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 			self.additional_fc = Linear(hidden_size, out_embed_dim)
 		if adaptive_softmax_cutoff is not None:
 			# setting adaptive_softmax dropout to dropout_out for now but can be redefined
-			self.adaptive_softmax = AdaptiveSoftmax(num_embeddings, hidden_size, adaptive_softmax_cutoff,
+			self.adaptive_softmax = AdaptiveSoftmax(self.num_embeddings, hidden_size, adaptive_softmax_cutoff,
 													dropout=dropout_out)
 		elif not self.share_input_output_embed:
-			self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
+			self.fc_out = Linear(out_embed_dim, self.num_embeddings, dropout=dropout_out)
 
 	def forward(self, prev_output_tokens, valid_indices, tgt_embedding, encoder_out=None, incremental_state=None, **kwargs):
 		x, attn_scores = self.extract_features(
@@ -527,10 +527,12 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 
 	def output_layer(self, x, tgt_embedding, valid_indices=None):
 		"""Project features to the vocabulary size."""
+		x = F.linear(x, tgt_embedding.weight)
 		if valid_indices!=None:
-			decoder_padding_mask = self.get_decoder_padding_mask(valid_indices)
-			x = x.float().masked_fill_(decoder_padding_mask.cuda(),float('-inf')).type_as(x)
-		return F.linear(x, tgt_embedding.weight)
+                    decoder_padding_mask = self.get_decoder_padding_mask(valid_indices)
+		    decoder_padding_mask = decoder_padding_mask.repeat(1,x.size()[1]).view(x.size())
+                x = x.float().masked_fill_(decoder_padding_mask.cuda(),float('-inf')).type_as(x)
+		return x	
 
 	def reorder_incremental_state(self, incremental_state, new_order):
 		super().reorder_incremental_state(incremental_state, new_order)
