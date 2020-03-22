@@ -35,7 +35,7 @@ EVAL_BLEU_ORDER = 4
 logger = logging.getLogger(__name__)
 
 
-def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
+def load_seq_sql_dataset(data_path, split, src, src_dict, prev_src_dict, sql, sql_dict, prev_sql_dict,
 		encoder_embed_path, encoder_embed_dim,
 		decoder_embed_path, decoder_embed_dim,
 	encoder_random_embedding_path,
@@ -88,8 +88,8 @@ def load_seq_sql_dataset(data_path, split, src, src_dict, sql, sql_dict,
   
 
 	return Seq2SqlPairDataSet(
-		src_dataset, src_dataset.sizes, src_dict, 
-		sql_dataset, sql_dataset.sizes, sql_dict,
+		src_dataset, src_dataset.sizes, src_dict, prev_src_dict,
+		sql_dataset, sql_dataset.sizes, sql_dict, prev_sql_dict,
 		encoder_embed_path, encoder_embed_dim,
 		decoder_embed_path, decoder_embed_dim,
 	encoder_random_embedding_path,
@@ -178,11 +178,11 @@ class Seq2SqlTask(FairseqTask):
 					fname.write(str(j) + ' ')
 				fname.write('\n')
 			fname.close()
-		if not os.path.exists(os.path.join(paths[0],'rnd_embed.src')):
+		if not os.path.exists(os.path.join(args.save_dir,'rnd_embed.src')):
 			store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
 			store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
-		src_random_embedding_path = os.path.join(paths[0],'rnd_embed.src')
-		sql_random_embedding_path = os.path.join(paths[0],'rnd_embed.sql')         
+		src_random_embedding_path = os.path.join(args.save_dir,'rnd_embed.src')
+		sql_random_embedding_path = os.path.join(args.save_dir,'rnd_embed.sql')         
 
 		assert src_dict.pad() == sql_dict.pad()
 		assert src_dict.eos() == sql_dict.eos()
@@ -214,7 +214,7 @@ class Seq2SqlTask(FairseqTask):
 
 
 		self.datasets[split] = load_seq_sql_dataset(
-			data_path, split, src, src_dict, sql, sql_dict,
+			data_path, split, src, src_dict, self.src_dict, sql, sql_dict, self.sql_dict,
 			encoder_embed_path=self.args.encoder_embed_path, 
 			encoder_embed_dim=self.args.encoder_embed_dim,
 			decoder_embed_path=self.args.decoder_embed_path, 
