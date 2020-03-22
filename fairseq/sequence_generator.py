@@ -145,6 +145,7 @@ class SequenceGenerator(object):
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
+        new_valid_indices = [v for v in decoder_input['valid_indices'] for i in range(beam_size)]
 
         # initialize buffers
         scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
@@ -274,19 +275,25 @@ class SequenceGenerator(object):
         reorder_state = None
         batch_idxs = None
         for step in range(max_len + 1):  # one extra step for EOS marker
+
             # reorder decoder internal states based on the prev choice of beams
             if reorder_state is not None:
                 if batch_idxs is not None:
                     # update beam indices to take into account removed sentences
+		
                     corr = batch_idxs - torch.arange(batch_idxs.numel()).type_as(batch_idxs)
                     reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-1) * beam_size)
+                    temp = []
+                    for k in reorder_state:
+                        temp.append(new_valid_indices[k])
+                    new_valid_indices = temp
+
                 model.reorder_incremental_state(reorder_state)
                 encoder_outs = model.reorder_encoder_out(encoder_outs, reorder_state)
 
-        
             if decoder_input is not None:
                 lprobs, avg_attn_scores = model.forward_decoder(
-                    tokens[:, :step + 1], encoder_outs, temperature=self.temperature, valid_indices=decoder_input['valid_indices'], tgt_embedding=decoder_input['tgt_embedding']
+                    tokens[:, :step + 1], encoder_outs, temperature=self.temperature, valid_indices=new_valid_indices, tgt_embedding=decoder_input['tgt_embedding']
                 )
    
             

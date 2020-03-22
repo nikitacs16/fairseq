@@ -531,7 +531,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		if valid_indices!=None:
 			decoder_padding_mask = self.get_decoder_padding_mask(valid_indices)
 			decoder_padding_mask = decoder_padding_mask.repeat(1,x.size()[1]).view(x.size())
-		x = x.float().masked_fill_(decoder_padding_mask.cuda(),float('-inf')).type_as(x)
+		x = x.float().masked_fill_(decoder_padding_mask.cuda(),float('-1e-32')).type_as(x)
 		return x	
 
 	def reorder_incremental_state(self, incremental_state, new_order):
