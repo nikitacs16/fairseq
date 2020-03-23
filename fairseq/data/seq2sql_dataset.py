@@ -17,11 +17,11 @@ from fairseq import metrics, options, utils
 
 def load_random_embedding(fname):
 	fname = open(fname,'r')
-	embed_tokens = []
-	for line in fname.readlines():
+	embed_tokens = {}
+	for i, line in enumerate(fname.readlines()):
 		pieces = line.strip().split(" ")
-		embed_tokens.append([float(weight) for weight in pieces])    
-	return torch.Tensor(embed_tokens)        
+		embed_tokens[i] = torch.Tensor([float(weight) for weight in pieces])    
+	return embed_tokens
 
 
 def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_path, prev_dict):
@@ -29,9 +29,9 @@ def copy_prev_embedding(embed_path, dictionary, embed_dim, prev_embedded_tokens_
 	padding_idx = dictionary.pad()
 	embed_tokens = nn.Embedding(num_embeddings, embed_dim, padding_idx)
 	prev_embedded_tokens = load_random_embedding(prev_embedded_tokens_path)
-	for i in range(len(num_embeddings)):
+	for i in range(5, num_embeddings):
 		if prev_dict.index(dictionary.symbols[i])!= prev_dict.unk() and i!=dictionary.unk():
-			embed_tokens.weight[i] = prev_dict[prev_dict.index(dictionary.symbols[i])]
+			embed_tokens.weight.data[i] = prev_embedded_tokens[prev_dict.index(dictionary.symbols[i])]
 
 	#embed_tokens.weight = nn.Parameter(prev_embedded_tokens)
 	embed_dict = utils.parse_embedding(embed_path)

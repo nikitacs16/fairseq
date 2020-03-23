@@ -172,17 +172,22 @@ class Seq2SqlTask(FairseqTask):
 
 		def store_random_embeddings(num_embeddings, embedding_dim, padding_idx, fname):
 			m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-			fname = open(os.path.join(paths[0],'rnd_embed.'+fname),'w')
+			fname = open(os.path.join(args.save_dir,'rnd_embed.'+fname),'w')
 			for i in m.weight.tolist():
 				for j in i:
 					fname.write(str(j) + ' ')
 				fname.write('\n')
 			fname.close()
-		if not os.path.exists(os.path.join(args.save_dir,'rnd_embed.src')):
+                
+                if 'save-dir' in args:
+                    save_path = args.save_dir
+                else:
+                    save_path = os.path.dirname(os.path.realpath(args.path))
+		if not os.path.exists(os.path.join(save_path,'rnd_embed.src')):
 			store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
 			store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
-		src_random_embedding_path = os.path.join(args.save_dir,'rnd_embed.src')
-		sql_random_embedding_path = os.path.join(args.save_dir,'rnd_embed.sql')         
+		src_random_embedding_path = os.path.join(save_path,'rnd_embed.src')
+		sql_random_embedding_path = os.path.join(save_path,'rnd_embed.sql')         
 
 		assert src_dict.pad() == sql_dict.pad()
 		assert src_dict.eos() == sql_dict.eos()
