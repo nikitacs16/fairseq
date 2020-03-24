@@ -178,11 +178,11 @@ class Seq2SqlTask(FairseqTask):
 					fname.write(str(j) + ' ')
 				fname.write('\n')
 			fname.close()
-                
-                if 'save-dir' in args:
-                    save_path = args.save_dir
-                else:
-                    save_path = os.path.dirname(os.path.realpath(args.path))
+				
+		if 'path' in args:
+			save_path = os.path.dirname(os.path.realpath(args.path))
+		else:
+			save_path = args.save_dir
 		if not os.path.exists(os.path.join(save_path,'rnd_embed.src')):
 			store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
 			store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
