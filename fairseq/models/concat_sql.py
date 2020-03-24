@@ -101,11 +101,11 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
 		if args.encoder_embed_path:
 			pretrained_encoder_embed = load_pretrained_embedding_from_file(
-				args.encoder_embed_path, task.source_dictionary, args.encoder_embed_dim)
+				args.encoder_embed_path, task.source_dictionary, args.word_encoder_embed_dim)
 		else:
 			num_embeddings = len(task.source_dictionary)
 			pretrained_encoder_embed = Embedding(
-				num_embeddings, args.encoder_embed_dim, task.source_dictionary.pad()
+				num_embeddings, args.word_encoder_embed_dim, task.source_dictionary.pad()
 			)
 
 		if args.share_all_embeddings:
@@ -117,7 +117,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 				raise ValueError(
 					'--share-all-embed not compatible with --decoder-embed-path'
 				)
-			if args.encoder_embed_dim != args.decoder_embed_dim:
+			if args.word_encoder_embed_dim != args.decoder_embed_dim:
 				raise ValueError(
 					'--share-all-embeddings requires --encoder-embed-dim to '
 					'match --decoder-embed-dim'
@@ -148,7 +148,7 @@ class ConcatSeq2Seq(FairseqEncoderDecoderModel):
 
 		encoder = LSTMEncoder(
 			dictionary=task.source_dictionary,
-			embed_dim=args.encoder_embed_dim,
+			embed_dim=args.word_encoder_embed_dim,
 			hidden_size=args.encoder_hidden_size,
 			num_layers=args.encoder_layers,
 			dropout_in=args.encoder_dropout_in,
@@ -595,7 +595,7 @@ def Linear(in_features, out_features, bias=True, dropout=0):
 @register_model_architecture('concatseq2seq', 'concatseq2seq')
 def base_architecture(args):
 	args.dropout = getattr(args, 'dropout', 0.1)
-	args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', args.encoder_embed_dim)
+	args.word_encoder_embed_dim = getattr(args, 'encoder_embed_dim', args.word_encoder_embed_dim)
 	args.encoder_embed_path = getattr(args, 'encoder_embed_path', args.encoder_embed_path)
 	args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed',True)
 	args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_hidden_size)

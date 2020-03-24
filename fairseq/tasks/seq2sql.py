@@ -184,7 +184,7 @@ class Seq2SqlTask(FairseqTask):
 		else:
 			save_path = args.save_dir
 		if not os.path.exists(os.path.join(save_path,'rnd_embed.src')):
-			store_random_embeddings(len(src_dict), args.encoder_embed_dim, src_dict.pad(),'src')
+			store_random_embeddings(len(src_dict), args.word_encoder_embed_dim, src_dict.pad(),'src')
 			store_random_embeddings(len(sql_dict), args.decoder_embed_dim, sql_dict.pad(),'sql')
 		src_random_embedding_path = os.path.join(save_path,'rnd_embed.src')
 		sql_random_embedding_path = os.path.join(save_path,'rnd_embed.sql')         
@@ -221,7 +221,7 @@ class Seq2SqlTask(FairseqTask):
 		self.datasets[split] = load_seq_sql_dataset(
 			data_path, split, src, src_dict, self.src_dict, sql, sql_dict, self.sql_dict,
 			encoder_embed_path=self.args.encoder_embed_path, 
-			encoder_embed_dim=self.args.encoder_embed_dim,
+			encoder_embed_dim=self.args.word_encoder_embed_dim,
 			decoder_embed_path=self.args.decoder_embed_path, 
 			decoder_embed_dim=self.args.decoder_embed_dim,
 			encoder_random_embedding_path=self.src_random_embedding_path,

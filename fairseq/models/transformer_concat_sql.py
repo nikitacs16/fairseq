@@ -99,9 +99,6 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 		parser.add_argument('--no-token-positional-embeddings', default=False, action='store_true',
 						   help='if set, disables positional embeddings (outside self attention)')
 	   
-		parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
-							help='comma separated list of adaptive softmax cutoff points. '
-								 'Must be used with adaptive_loss criterion'),
 		parser.add_argument('--adaptive-softmax-dropout', type=float, metavar='D',
 							help='sets adaptive softmax dropout for the tail projections')
 
