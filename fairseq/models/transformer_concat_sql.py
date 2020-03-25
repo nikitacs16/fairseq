@@ -33,7 +33,7 @@ DEFAULT_MAX_TARGET_POSITIONS = 1e5
 
 @register_model('transformer-concatseq2seq')
 class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
-	def __init__(self, encoder, decoder):
+	def __init__(self, args, encoder, decoder):
 		super().__init__(encoder, decoder)
 		self.args = args
 		self.supports_align_args = True
@@ -151,6 +151,7 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 			embed_dict = utils.parse_embedding(embed_path)
 			utils.print_embed_overlap(embed_dict, dictionary)
 			return utils.load_embedding(embed_dict, dictionary, embed_tokens)
+		'''
 
 		if args.encoder_embed_path:
 			pretrained_encoder_embed = load_pretrained_embedding_from_file(
@@ -198,7 +199,7 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 			pretrained_encoder_embed.weight.requires_grad = False
 		if args.decoder_freeze_embed:
 			pretrained_decoder_embed.weight.requires_grad = False
-
+		'''
 		encoder = TransformerEncoder(args, task.source_dictionary, args.word_encoder_embed_dim, args.encoder_embed_dim)
 		decoder = LSTMDecoder(
 			dictionary=task.target_dictionary,
@@ -210,7 +211,7 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 			dropout_out=args.decoder_dropout_out,
 			attention=options.eval_bool(args.decoder_attention),
 			encoder_output_units=encoder.output_units,
-			pretrained_embed=pretrained_decoder_embed,
+			pretrained_embed=None,
 			share_input_output_embed=args.share_decoder_input_output_embed,
 			adaptive_softmax_cutoff=(
 				options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
@@ -218,7 +219,7 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 			),
 			max_target_positions=max_target_positions
 		)
-		return cls(encoder, decoder)
+		return cls(args, encoder, decoder)
 
 	def forward(self, src_tokens, src_lengths, src_embedding, tgt_embedding, valid_indices, prev_output_tokens, **kwargs):
 		encoder_out = self.encoder(src_tokens, src_lengths, src_embedding)
@@ -230,7 +231,7 @@ class TransformerConcatSeq2Seq(FairseqEncoderDecoderModel):
 
 
 
-class TransformerSQLEncoder(FairseqEncoder):
+class TransformerEncoder(FairseqEncoder):
 	"""
 	Transformer encoder consisting of *args.encoder_layers* layers. Each layer
 	is a :class:`TransformerEncoderLayer`.
@@ -253,7 +254,7 @@ class TransformerSQLEncoder(FairseqEncoder):
 			self.word_projection_layer = None
 		embed_dim = encoder_embed_dim
 		self.output_units = encoder_embed_dim
-		self.padding_idx = embed_tokens.padding_idx
+		self.padding_idx = dictionary.pad()
 		self.max_source_positions = args.max_source_positions
 
 
@@ -289,7 +290,10 @@ class TransformerSQLEncoder(FairseqEncoder):
 
 	def forward_embedding(self, src_tokens, src_embedding):
 		# embed tokens and positions
-		x = embed = self.embed_scale * src_embedding(src_tokens)
+		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+		src_embedding.to(device)
+
+		x = embed = self.embed_scale * src_embedding(src_tokens.cuda())
 		if self.word_projection_layer is not None:
 			x = embed = self.word_projection_layer(embed)
 		if self.embed_positions is not None:
@@ -504,15 +508,16 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		self.share_input_output_embed = share_input_output_embed
 		self.need_attn = True
 		self.max_target_positions = max_target_positions
-		
+		self.embed_dim = embed_dim		
 		self.adaptive_softmax = None
 		self.num_embeddings = len(dictionary)
 		padding_idx = dictionary.pad()
+		'''
 		if pretrained_embed is None:
 			self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
 		else:
 			self.embed_tokens = pretrained_embed
-
+		'''
 		self.encoder_output_units = encoder_output_units
 
 		# disable input feeding if there is no encoder
@@ -552,8 +557,8 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		Similar to *forward* but only return features.
 		"""
 		if encoder_out is not None:
-			encoder_padding_mask = encoder_out['encoder_padding_mask']
-			encoder_out = encoder_out['encoder_out']
+			encoder_padding_mask = encoder_out.encoder_padding_mask
+			encoder_out = encoder_out.encoder_out
 		else:
 			encoder_padding_mask = None
 			encoder_out = None
@@ -591,21 +596,24 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 		else:
 			# setup zero cells, since there is no encoder
 			num_layers = len(self.layers)
-			zero_state = x.new_zeros(bsz, self.hidden_size)
+			zero_state = x.new_zeros(bsz, self.hidden_size )
 			prev_hiddens = [zero_state for i in range(num_layers)]
 			prev_cells = [zero_state for i in range(num_layers)]
-			input_feed = None
+			input_feed = x.new_zeros(bsz, self.hidden_size)
+
 
 		assert srclen is not None or self.attention is None, \
 			"attention is not supported if there are no encoder outputs"
 		attn_scores = x.new_zeros(srclen, seqlen, bsz) if self.attention is not None else None
 		outs = []
 		for j in range(seqlen):
+
 			# input feeding: concatenate context vector from previous time step
 			if input_feed is not None:
 				input = torch.cat((x[j, :, :], input_feed), dim=1)
 			else:
 				input = x[j]
+			
 
 			for i, rnn in enumerate(self.layers):
 				# recurrent cell
@@ -620,7 +628,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 
 			# apply attention using the last layer's hidden state
 			if self.attention is not None:
-				out, attn_scores[:, j, :] = self.attention(hidden, encoder_outs, encoder_padding_mask)
+				out, attn_scores[:, j, :] = self.attention(hidden, encoder_outs, encoder_padding_mask.t())
 			else:
 				out = hidden
 			out = F.dropout(out, p=self.dropout_out, training=self.training)

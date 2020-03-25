@@ -229,10 +229,10 @@ def _main(args, output_file):
 
 def cli_main():
     parser = options.get_generation_parser()
-    parser.add_argument("--encoder_embed_path")
-    parser.add_argument("--decoder_embed_path")
-    parser.add_argument("--encoder_embed_dim",type=int)
-    parser.add_argument("--decoder_embed_dim",type=int)
+    parser.add_argument("--encoder-embed-path")
+    parser.add_argument("--decoder-embed-path")
+    parser.add_argument("--word-encoder-embed-dim",type=int)
+    parser.add_argument("--decoder-embed-dim",type=int)
 
     args = options.parse_args_and_arch(parser)
     
